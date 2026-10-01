@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.0
+
+- Toolsets: `SHIPSTORES_TOOLSETS` (or `[server] toolsets` in `config.toml`) exposes only the tool groups you need: `apple`, `play` and/or `eas`. Core diagnostics stay on, and the default is still all 60 tools. Thanks @berkay-byte for the first community contribution (#11).
+- CI now runs the unit tests.
+
 ## 0.1.0 — first public release
 
 60 tools. Install with `uvx shipstores`.
