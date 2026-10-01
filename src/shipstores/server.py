@@ -662,8 +662,8 @@ def apple_reply_review(
     `text` (up to 4000 characters) and the video recorded on the iPhone in
     `attachments`. HEVC video is converted to H.264 at 1920px before upload. Copy
     the same information into the review notes with apple_set_review_details, as
-    Apple asks. After the reply the resubmit button stays disabled: Apple itself
-    resumes the review.
+    Apple asks. Replying is not enough: the version stays Rejected until you
+    resubmit it ("Update Review" on the version page, then resubmit).
     """
     if len(text) > 4000:
         raise ValueError(f"The reply has {len(text)} characters; the console limit is 4000.")
@@ -679,7 +679,7 @@ def apple_reply_review(
         "review_submission_id": sub_id,
         "sent": True,
         "attachments": [str(f) for f in files],
-        "next_step": "Wait for Apple; follow up with apple_review_messages and apple_list_versions.",
+        "next_step": "Now resubmit: \"Update Review\" on the version page, then resubmit. Replying alone keeps the version Rejected.",
     }
 
 

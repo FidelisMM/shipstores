@@ -139,7 +139,7 @@ play_create_app_form → [fill in the browser] → play_upload_bundle (track=int
 **Rejected with "Guideline 2.1 – Information Needed"** (standard for new developer accounts)
 ```
 apple_review_messages → record the iPhone walkthrough → apple_set_review_details (answers in Notes)
-→ apple_reply_review (answers + video)
+→ apple_reply_review (answers + video) → resubmit ("Update Review" on the version page)
 ```
 
 ## Hard-won lessons
@@ -147,7 +147,7 @@ apple_review_messages → record the iPhone walkthrough → apple_set_review_det
 The part people bookmark. Each one cost a rejected build or a lost afternoon.
 
 **App Store Connect**
-- **New developer accounts get "2.1 Information Needed" on the first submission**, regardless of app quality. Apple wants a screen recording from a *physical* device that starts at app launch from the Home Screen and shows login, the main flow and account deletion, plus purpose, access instructions, external services, regional differences and regulated-industry info — in the reply *and* in the review Notes. After you reply, "Resubmit" stays disabled: App Review resumes on its own.
+- **New developer accounts get "2.1 Information Needed" on the first submission**, regardless of app quality. Apple wants a screen recording from a *physical* device that starts at app launch from the Home Screen and shows login, the main flow and account deletion, plus purpose, access instructions, external services, regional differences and regulated-industry info — in the reply *and* in the review Notes. Replying is not enough: the version stays "Rejected" until you also click "Update Review" on the version page and resubmit.
 - **Health apps must ship from an organization account** (Guideline 5.1.1(ix)). An app rejected on an individual account can't be transferred (transfers need a released version): it becomes a new app with a new bundle ID.
 - **You can't learn your Team ID from the API until a bundle ID exists**; then it's the bundle's `seedId`.
 - **Privacy label records need category + purpose + protection in the same record.** Separate records are accepted one by one, then publishing fails with *"An app data usage is missing a category/purpose or data protection type"*.
