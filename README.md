@@ -86,8 +86,9 @@ Then ask your agent: *"run store_doctor"*. It checks both credentials with real 
 | `APPLE_TEAM_ID` | no | detected by `store_doctor` from any bundle ID |
 | `PLAY_SERVICE_ACCOUNT_PATH` | Android | service account JSON invited in Play Console with release permissions |
 | `PLAY_DEVELOPER_ID` | console forms | the number after `/developers/` in the Play Console URL |
+| `SHIPSTORES_TOOLSETS` | no | comma-separated tool groups to expose: `apple`, `play`, and/or `eas`; core diagnostics are always enabled (default: all groups) |
 
-Values can also live in `~/.config/shipstores/config.toml` — see [`config.example.toml`](config.example.toml). Nothing secret is ever written to the repo.
+For example, `SHIPSTORES_TOOLSETS=apple,eas` exposes only Apple and EAS tools, plus core diagnostics. The same setting can be configured as `[server] toolsets = ["apple", "eas"]` in `~/.config/shipstores/config.toml`. Values can also live in that file — see [`config.example.toml`](config.example.toml). Nothing secret is ever written to the repo.
 
 ### Console features (optional)
 

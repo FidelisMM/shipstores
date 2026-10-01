@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -10,7 +11,14 @@ import httpx
 from fastmcp import FastMCP
 
 from . import apple, apple_console, apple_review, browser, data_safety, eas, play, play_console, signing
-from .config import load_apple, load_play, play_console_app_ids, play_developer_id
+from .config import (
+    TOOLSETS,
+    load_apple,
+    load_play,
+    load_toolsets,
+    play_console_app_ids,
+    play_developer_id,
+)
 
 mcp = FastMCP(
     "shipstores",
@@ -41,10 +49,24 @@ mcp = FastMCP(
 )
 
 
+_CORE_TOOLS = {"store_doctor", "store_audit_identity", "store_browser_session"}
+
+
+def _register_tool(function: Callable[..., Any]) -> Any:
+    name = function.__name__
+    if name in _CORE_TOOLS:
+        toolset = "core"
+    else:
+        toolset = name.partition("_")[0]
+        if toolset not in TOOLSETS - {"core"}:
+            raise ValueError(f"Tool {name!r} does not belong to a known toolset.")
+    return mcp.tool(tags={toolset})(function)
+
+
 # ---------------------------------------------------------------- diagnostics
 
 
-@mcp.tool
+@_register_tool
 def store_doctor() -> dict[str, Any]:
     """Check the credentials for both stores with real API calls.
 
@@ -120,7 +142,7 @@ def store_doctor() -> dict[str, Any]:
     return report
 
 
-@mcp.tool
+@_register_tool
 def store_browser_session(relogin: bool = False, console: str | None = None) -> dict[str, Any]:
     """Login state of the dedicated browser on both consoles.
 
@@ -162,7 +184,7 @@ def store_browser_session(relogin: bool = False, console: str | None = None) -> 
 # --------------------------------------------------------------------- apple
 
 
-@mcp.tool
+@_register_tool
 def apple_list_apps() -> list[dict[str, Any]]:
     """List the apps in the App Store Connect account with id, bundleId and name.
 
@@ -181,7 +203,7 @@ def apple_list_apps() -> list[dict[str, Any]]:
     ]
 
 
-@mcp.tool
+@_register_tool
 def apple_register_bundle_id(identifier: str, name: str, platform: str = "IOS") -> dict[str, Any]:
     """Register a new Bundle ID in the Apple Developer portal.
 
@@ -203,7 +225,7 @@ def apple_register_bundle_id(identifier: str, name: str, platform: str = "IOS") 
     return {"bundle_id_resource_id": data["data"]["id"], "identifier": identifier}
 
 
-@mcp.tool
+@_register_tool
 def apple_create_app_form(bundle_id: str, suggested_name: str) -> dict[str, Any]:
     """Open the App Store Connect new-app form in the browser.
 
@@ -227,7 +249,7 @@ def apple_create_app_form(bundle_id: str, suggested_name: str) -> dict[str, Any]
     }
 
 
-@mcp.tool
+@_register_tool
 def apple_upload_build(ipa_path: str, platform: str = "ios") -> dict[str, Any]:
     """Upload an .ipa to App Store Connect via xcrun altool.
 
@@ -245,7 +267,7 @@ def apple_upload_build(ipa_path: str, platform: str = "ios") -> dict[str, Any]:
     }
 
 
-@mcp.tool
+@_register_tool
 def apple_list_builds(app_id: str, limit: int = 10) -> list[dict[str, Any]]:
     """List an app's builds and the processing state of each.
 
@@ -269,7 +291,7 @@ def apple_list_builds(app_id: str, limit: int = 10) -> list[dict[str, Any]]:
     ]
 
 
-@mcp.tool
+@_register_tool
 def apple_create_version(app_id: str, version_string: str, platform: str = "IOS") -> dict[str, Any]:
     """Create a new App Store version for an existing app.
 
@@ -290,7 +312,7 @@ def apple_create_version(app_id: str, version_string: str, platform: str = "IOS"
     return {"version_id": data["data"]["id"], "version_string": version_string}
 
 
-@mcp.tool
+@_register_tool
 def apple_list_versions(app_id: str, limit: int = 10) -> list[dict[str, Any]]:
     """List an app's App Store versions, with the review state of each."""
     data = apple.request(
@@ -308,7 +330,7 @@ def apple_list_versions(app_id: str, limit: int = 10) -> list[dict[str, Any]]:
     ]
 
 
-@mcp.tool
+@_register_tool
 def apple_update_listing(
     version_id: str,
     locale: str = "pt-BR",
@@ -360,7 +382,7 @@ def apple_update_listing(
     return {"localization_id": match["id"], "locale": locale, "updated": list(attributes)}
 
 
-@mcp.tool
+@_register_tool
 def apple_attach_build(version_id: str, build_id: str) -> dict[str, Any]:
     """Attach a processed build to an App Store version.
 
@@ -374,7 +396,7 @@ def apple_attach_build(version_id: str, build_id: str) -> dict[str, Any]:
     return {"version_id": version_id, "build_id": build_id, "attached": True}
 
 
-@mcp.tool
+@_register_tool
 def apple_submit_for_review(version_id: str) -> dict[str, Any]:
     """Submit a version for Apple review. External action, hard to reverse.
 
@@ -455,7 +477,7 @@ def _editable_version(app_id: str) -> str:
     raise apple.AppleError("No editable version: create one with apple_create_version.")
 
 
-@mcp.tool
+@_register_tool
 def apple_set_app_info(
     app_id: str,
     locale: str = "pt-BR",
@@ -531,7 +553,7 @@ AGE_RATING_DEFAULTS: dict[str, Any] = {
 }
 
 
-@mcp.tool
+@_register_tool
 def apple_set_age_rating(app_id: str, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
     """Answer the age rating questionnaire. External action.
 
@@ -551,7 +573,7 @@ def apple_set_age_rating(app_id: str, overrides: dict[str, Any] | None = None) -
     return {"app_id": app_id, "answers": {k: v for k, v in answers.items() if v not in (False, "NONE")}}
 
 
-@mcp.tool
+@_register_tool
 def apple_set_free_price(app_id: str, base_territory: str = "BRA") -> dict[str, Any]:
     """Make the app free (price 0 in the base territory). External action."""
     points = apple.request("GET", f"/v1/apps/{app_id}/appPricePoints",
@@ -570,7 +592,7 @@ def apple_set_free_price(app_id: str, base_territory: str = "BRA") -> dict[str, 
     return {"app_id": app_id, "price": "free", "base_territory": base_territory}
 
 
-@mcp.tool
+@_register_tool
 def apple_set_availability(
     app_id: str, territories: list[str], available_in_new_territories: bool = False
 ) -> dict[str, Any]:
@@ -583,7 +605,7 @@ def apple_set_availability(
     return {"app_id": app_id, **apple_console.set_availability(app_id, territories, available_in_new_territories)}
 
 
-@mcp.tool
+@_register_tool
 def apple_set_app_privacy(app_id: str, usages: list[dict[str, Any]]) -> dict[str, Any]:
     """Replace and publish the "App Privacy" declaration (privacy nutrition label). External action.
 
@@ -595,7 +617,7 @@ def apple_set_app_privacy(app_id: str, usages: list[dict[str, Any]]) -> dict[str
     return {"app_id": app_id, **apple_console.set_privacy(app_id, usages)}
 
 
-@mcp.tool
+@_register_tool
 def apple_testflight_invite(
     app_id: str, email: str, first_name: str = "", last_name: str = "", group_name: str = "Internal"
 ) -> dict[str, Any]:
@@ -624,7 +646,7 @@ def apple_testflight_invite(
     return {"group": group_name, "group_id": group["id"], "invited": email, "visible_builds": builds}
 
 
-@mcp.tool
+@_register_tool
 def apple_cancel_submission(app_id: str) -> dict[str, Any]:
     """Pull a version submitted for review out of the queue (before Apple decides). External action.
 
@@ -640,7 +662,7 @@ def apple_cancel_submission(app_id: str) -> dict[str, Any]:
     return {"review_submission_id": sub_id, "state": result["data"]["attributes"].get("state")}
 
 
-@mcp.tool
+@_register_tool
 def apple_resubmit_for_review(app_id: str) -> dict[str, Any]:
     """Resubmit a rejected version after replying to App Review or fixing it. External action.
 
@@ -663,7 +685,7 @@ def apple_resubmit_for_review(app_id: str) -> dict[str, Any]:
             "state": result["data"]["attributes"].get("state")}
 
 
-@mcp.tool
+@_register_tool
 def apple_review_messages(app_id: str) -> dict[str, Any]:
     """Read the review messages (Resolution Center) and the rejection reasons.
 
@@ -675,7 +697,7 @@ def apple_review_messages(app_id: str) -> dict[str, Any]:
     return {"app_id": app_id, "messages": messages, "total": len(messages)}
 
 
-@mcp.tool
+@_register_tool
 def apple_reply_review(
     app_id: str, text: str, attachments: list[str] | None = None
 ) -> dict[str, Any]:
@@ -706,7 +728,7 @@ def apple_reply_review(
     }
 
 
-@mcp.tool
+@_register_tool
 def apple_review_details(version_id: str) -> dict[str, Any]:
     """Read a version's App Review information (contact, demo account, notes).
 
@@ -724,7 +746,7 @@ def apple_review_details(version_id: str) -> dict[str, Any]:
     return {"exists": True, "review_detail_id": dado["id"], **atributos}
 
 
-@mcp.tool
+@_register_tool
 def apple_set_review_details(
     version_id: str,
     demo_account_name: str | None = None,
@@ -798,7 +820,7 @@ def apple_set_review_details(
     return {"review_detail_id": criado["data"]["id"], "created": sorted(atributos)}
 
 
-@mcp.tool
+@_register_tool
 def apple_set_version_string(version_id: str, version_string: str) -> dict[str, Any]:
     """Rename an editable version. External action.
 
@@ -828,7 +850,7 @@ def apple_set_version_string(version_id: str, version_string: str) -> dict[str, 
 # ------------------------------------------------------- subscriptions (IAP)
 
 
-@mcp.tool
+@_register_tool
 def apple_list_subscriptions(app_id: str) -> list[dict[str, Any]]:
     """List the app's subscription groups, with the products in each.
 
@@ -861,7 +883,7 @@ def apple_list_subscriptions(app_id: str) -> list[dict[str, Any]]:
     return saida
 
 
-@mcp.tool
+@_register_tool
 def apple_create_subscription_group(
     app_id: str,
     reference_name: str,
@@ -905,7 +927,7 @@ def apple_create_subscription_group(
     return {"group_id": group_id, "reference_name": reference_name, "locale": locale}
 
 
-@mcp.tool
+@_register_tool
 def apple_create_subscription(
     group_id: str,
     product_id: str,
@@ -971,7 +993,7 @@ def apple_create_subscription(
     }
 
 
-@mcp.tool
+@_register_tool
 def apple_list_price_points(
     subscription_id: str,
     territory: str = "BRA",
@@ -1011,7 +1033,7 @@ def apple_list_price_points(
     return sorted(itens, key=lambda item: item["customer_price"])
 
 
-@mcp.tool
+@_register_tool
 def apple_set_subscription_price(
     subscription_id: str, price_point_id: str, preserve_current_price: bool | None = None
 ) -> dict[str, Any]:
@@ -1049,7 +1071,7 @@ def apple_set_subscription_price(
     return {"price_id": preco["data"]["id"], "subscription_id": subscription_id}
 
 
-@mcp.tool
+@_register_tool
 def apple_set_subscription_availability(
     subscription_id: str,
     territories: list[str] | None = None,
@@ -1085,7 +1107,7 @@ def apple_set_subscription_availability(
     }
 
 
-@mcp.tool
+@_register_tool
 def apple_create_intro_offer(
     subscription_id: str,
     duration: str = "TWO_WEEKS",
@@ -1133,7 +1155,7 @@ def apple_create_intro_offer(
     }
 
 
-@mcp.tool
+@_register_tool
 def apple_upload_subscription_screenshot(
     subscription_id: str, image_path: str
 ) -> dict[str, Any]:
@@ -1164,7 +1186,7 @@ SCREENSHOT_EXTENSOES = (".png", ".jpg", ".jpeg")
 MAX_SCREENSHOTS_POR_SET = 10  # App Store limit per screenshot set
 
 
-@mcp.tool
+@_register_tool
 def apple_upload_screenshots(
     version_id: str,
     folder: str,
@@ -1280,7 +1302,7 @@ def apple_upload_screenshots(
 # ---------------------------------------------------------------------- play
 
 
-@mcp.tool
+@_register_tool
 def play_create_app_form(package_name: str, suggested_name: str) -> dict[str, Any]:
     """Open the Play Console app list in the browser to create a new app.
 
@@ -1305,7 +1327,7 @@ def play_create_app_form(package_name: str, suggested_name: str) -> dict[str, An
     }
 
 
-@mcp.tool
+@_register_tool
 def play_track_status(package_name: str) -> list[dict[str, Any]]:
     """List the app's Play tracks and the active releases on each.
 
@@ -1330,7 +1352,7 @@ def play_track_status(package_name: str) -> list[dict[str, Any]]:
     ]
 
 
-@mcp.tool
+@_register_tool
 def play_upload_bundle(
     package_name: str,
     aab_path: str,
@@ -1371,7 +1393,7 @@ def play_upload_bundle(
     return result
 
 
-@mcp.tool
+@_register_tool
 def play_upload_screenshots(
     package_name: str,
     folder: str,
@@ -1417,7 +1439,7 @@ def play_upload_screenshots(
     }
 
 
-@mcp.tool
+@_register_tool
 def play_list_screenshots(
     package_name: str, image_type: str = "phoneScreenshots", language: str = "pt-BR"
 ) -> dict[str, Any]:
@@ -1438,7 +1460,7 @@ def play_list_screenshots(
     }
 
 
-@mcp.tool
+@_register_tool
 def play_promote_release(
     package_name: str,
     version_code: int,
@@ -1473,7 +1495,7 @@ def play_promote_release(
     }
 
 
-@mcp.tool
+@_register_tool
 def play_update_listing(
     package_name: str,
     language: str = "pt-BR",
@@ -1516,7 +1538,7 @@ def play_update_listing(
     return {"package_name": package_name, "language": language, "updated": list(fields)}
 
 
-@mcp.tool
+@_register_tool
 def play_signing_sha1(package_name: str, download_dir: str) -> dict[str, Any]:
     """Download Play's app signing certificates and return the SHA-1 of each.
 
@@ -1568,7 +1590,7 @@ def play_signing_sha1(package_name: str, download_dir: str) -> dict[str, Any]:
     }
 
 
-@mcp.tool
+@_register_tool
 def play_contact_details(package_name: str) -> dict[str, Any]:
     """Read the public contact details of the app's Play listing.
 
@@ -1578,7 +1600,7 @@ def play_contact_details(package_name: str) -> dict[str, Any]:
     return play.read_details(package_name)
 
 
-@mcp.tool
+@_register_tool
 def play_set_contact_details(
     package_name: str,
     contact_email: str | None = None,
@@ -1605,7 +1627,7 @@ def play_set_contact_details(
     return {"package_name": package_name, "updated": play.patch_details(package_name, fields)}
 
 
-@mcp.tool
+@_register_tool
 def store_audit_identity(pattern: str = r"example\.com|example corp") -> dict[str, Any]:
     """Scan both stores for text that should not be there.
 
@@ -1670,7 +1692,7 @@ def _console_ids(package_name: str) -> tuple[str, str]:
     return play_developer_id(), app_id
 
 
-@mcp.tool
+@_register_tool
 def play_submission_status(package_name: str) -> dict[str, Any]:
     """Report whether there are changes waiting to be sent, in review, or nothing pending.
 
@@ -1706,7 +1728,7 @@ def play_submission_status(package_name: str) -> dict[str, Any]:
     }
 
 
-@mcp.tool
+@_register_tool
 def play_submit_for_review(package_name: str) -> dict[str, Any]:
     """Send the app's pending changes to Google for review.
 
@@ -1749,7 +1771,7 @@ def play_submit_for_review(package_name: str) -> dict[str, Any]:
     }
 
 
-@mcp.tool
+@_register_tool
 def play_content_status(package_name: str) -> dict[str, Any]:
     """Show how many "App content" declarations are still missing before the app can publish.
 
@@ -1773,7 +1795,7 @@ def play_content_status(package_name: str) -> dict[str, Any]:
     }
 
 
-@mcp.tool
+@_register_tool
 def play_content_open(package_name: str, form: str) -> dict[str, Any]:
     """Open an "App content" declaration in the browser and return its text.
 
@@ -1789,7 +1811,7 @@ def play_content_open(package_name: str, form: str) -> dict[str, Any]:
     return {"form": form, "url": play_console.form_url(dev_id, app_id, form), "page": text[-3000:]}
 
 
-@mcp.tool
+@_register_tool
 def play_content_options(package_name: str) -> list[dict[str, Any]]:
     """List the controls (radios/checkboxes) of the open declaration and the state of each.
 
@@ -1803,7 +1825,7 @@ def play_content_options(package_name: str) -> list[dict[str, Any]]:
     return play_console.parse_json_tail(out) or []
 
 
-@mcp.tool
+@_register_tool
 def play_content_answer(
     package_name: str, option: str, nth: int = 0, save_after: bool = False
 ) -> dict[str, Any]:
@@ -1826,7 +1848,7 @@ def play_content_answer(
     return {"option": option, "nth": nth, "result": out.strip()[-600:]}
 
 
-@mcp.tool
+@_register_tool
 def play_content_save(package_name: str, button: str = "Salvar") -> dict[str, Any]:
     """Save the open declaration and dismiss the dialog the console opens afterwards.
 
@@ -1843,7 +1865,7 @@ def play_content_save(package_name: str, button: str = "Salvar") -> dict[str, An
     return {"button": button, "result": out.strip()[-500:]}
 
 
-@mcp.tool
+@_register_tool
 def play_data_safety_export(package_name: str, destination_dir: str) -> dict[str, Any]:
     """Download the Data safety declaration CSV template.
 
@@ -1879,7 +1901,7 @@ def play_data_safety_export(package_name: str, destination_dir: str) -> dict[str
     return {"template": str(final), "rows": sum(1 for _ in final.open()) - 1}
 
 
-@mcp.tool
+@_register_tool
 def play_data_safety_fill(
     template_path: str,
     destination_path: str,
@@ -1911,7 +1933,7 @@ def play_data_safety_fill(
     return result
 
 
-@mcp.tool
+@_register_tool
 def play_data_safety_import(package_name: str, csv_path: str) -> dict[str, Any]:
     """Import the filled-in CSV into the Data safety declaration.
 
@@ -1957,7 +1979,7 @@ def play_data_safety_import(package_name: str, csv_path: str) -> dict[str, Any]:
 # ----------------------------------------------------------------------- eas
 
 
-@mcp.tool
+@_register_tool
 def eas_build_list(
     project_path: str,
     platform: str | None = None,
@@ -1980,7 +2002,7 @@ def eas_build_list(
     return [eas.summarize(build) for build in builds]
 
 
-@mcp.tool
+@_register_tool
 def eas_build_start(project_path: str, platform: str, profile: str = "production") -> dict[str, Any]:
     """Start an EAS build and return immediately, without waiting for it to finish.
 
@@ -2001,7 +2023,7 @@ def eas_build_start(project_path: str, platform: str, profile: str = "production
     }
 
 
-@mcp.tool
+@_register_tool
 def eas_build_status(project_path: str, build_id: str) -> dict[str, Any]:
     """Get the state of an EAS build by id.
 
@@ -2010,7 +2032,7 @@ def eas_build_status(project_path: str, build_id: str) -> dict[str, Any]:
     return eas.summarize(eas.run(["build:view", build_id, "--json"], project_path, timeout=120))
 
 
-@mcp.tool
+@_register_tool
 def eas_build_download(project_path: str, build_id: str, destination: str) -> dict[str, Any]:
     """Download the binary of a finished EAS build to a local path.
 
@@ -2033,7 +2055,7 @@ def eas_build_download(project_path: str, build_id: str, destination: str) -> di
     }
 
 
-@mcp.tool
+@_register_tool
 def eas_submit(
     project_path: str,
     platform: str,
@@ -2080,6 +2102,15 @@ def eas_submit(
         args += ["--id", build_id]
     output = eas.run(args, project_path, timeout=eas.SUBMIT_TIMEOUT, parse_json=False)
     return {"platform": platform, "profile": profile, "output": output[-2000:]}
+
+
+def _configure_toolsets() -> None:
+    disabled = TOOLSETS - load_toolsets()
+    if disabled:
+        mcp.disable(tags=disabled)
+
+
+_configure_toolsets()
 
 
 def main() -> None:

@@ -2,6 +2,10 @@
 # Environment variables with the same meaning always win over this file.
 # Never commit the real file: it holds paths to your keys.
 
+# Optional. Defaults to all toolsets; core diagnostics are always enabled.
+# [server]
+# toolsets = ["apple", "eas"]
+
 [apple]
 key_id = "ABC123XYZ"                                   # ASC_KEY_ID
 issuer_id = "00000000-0000-0000-0000-000000000000"     # ASC_ISSUER_ID
