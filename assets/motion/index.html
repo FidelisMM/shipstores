@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>shipstores motion</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0b0d10; --panel: #12161b; --panel2: #171c22; --line: #232a32;
+    --text: #e8edf2; --muted: #8a96a3; --dim: #5b6672;
+    --orange: #ff6b2c; --green: #3ddc84; --amber: #ffb547; --red: #ff5a5f; --blue: #6aa8ff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1280px; height: 720px; background: var(--bg); overflow: hidden; }
+  body { font-family: "JetBrains Mono", ui-monospace, monospace; color: var(--text); }
+  #stage { position: relative; width: 1280px; height: 720px; padding: 40px; display: flex; gap: 24px; }
+  .glow { position: absolute; width: 700px; height: 700px; border-radius: 50%; filter: blur(120px); opacity: .18; pointer-events: none; }
+  .glow.a { background: var(--orange); left: -260px; top: -320px; }
+  .glow.b { background: #3b6cff; right: -300px; bottom: -380px; opacity: .12; }
+
+  .term { position: relative; flex: 0 0 800px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; box-shadow: 0 30px 80px rgba(0,0,0,.45); }
+  .bar { height: 42px; display: flex; align-items: center; gap: 8px; padding: 0 16px; background: var(--panel2); border-bottom: 1px solid var(--line); }
+  .dot { width: 12px; height: 12px; border-radius: 50%; }
+  .bar .title { margin-left: 12px; font-size: 13px; color: var(--muted); }
+  .body { padding: 26px 30px; font-size: 18px; line-height: 1.5; }
+  .prompt { color: var(--text); min-height: 46px; }
+  .prompt .caret { display: inline-block; width: 10px; height: 21px; background: var(--orange); vertical-align: -3px; margin-left: 2px; }
+  .prompt .chev { color: var(--orange); font-weight: 700; margin-right: 10px; }
+  .using { color: var(--muted); margin: 6px 0 14px; font-size: 16px; }
+  .using b { color: var(--orange); font-weight: 500; }
+  .rows { display: flex; flex-direction: column; gap: 9px; }
+  .row { display: grid; grid-template-columns: 24px 300px 1fr; align-items: center; gap: 12px; font-size: 16px; height: 32px; }
+  .row .ic { width: 18px; height: 18px; position: relative; display: block; }
+  .spin { display: block; width: 18px; height: 18px; border-radius: 50%; border: 2.5px solid #2c343d; border-top-color: var(--orange); }
+  .check { display: block; width: 18px; height: 18px; border-radius: 50%; background: var(--green); position: relative; }
+  .check::after { content: ""; position: absolute; left: 6px; top: 3px; width: 4px; height: 8px; border: solid #0b0d10; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+  .row .name { color: var(--blue); white-space: nowrap; }
+  .row .res { color: var(--muted); white-space: nowrap; overflow: hidden; }
+  .row .res .ok { color: var(--text); }
+  .tag { display: inline-block; font-size: 12.5px; padding: 1px 8px; border-radius: 999px; border: 1px solid rgba(255,107,44,.5); color: var(--orange); margin-right: 8px; letter-spacing: .02em; }
+  .tag.r { border-color: rgba(255,90,95,.55); color: var(--red); }
+
+  .side { flex: 1; display: flex; flex-direction: column; gap: 18px; padding-top: 4px; }
+  .side h4 { font: 500 13px "JetBrains Mono", monospace; color: var(--dim); letter-spacing: .14em; text-transform: uppercase; margin: 6px 4px 0; }
+  .store { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 20px 22px; box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+  .store .head { display: flex; align-items: center; gap: 12px; font: 700 25px "Bricolage Grotesque", sans-serif; }
+  .store .logo { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; font: 700 19px "Bricolage Grotesque", sans-serif; }
+  .store .ver { margin-top: 8px; font-size: 15px; color: var(--muted); }
+  .chip { margin-top: 18px; display: inline-flex; align-items: center; gap: 10px; padding: 9px 16px; border-radius: 999px; font-size: 17px; font-weight: 500; border: 1px solid; }
+  .chip i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+  .note { font-size: 14px; color: var(--dim); line-height: 1.5; padding: 0 4px; }
+
+  .outro { position: absolute; inset: 0; background: radial-gradient(1200px 700px at 30% 20%, #1a1410 0%, var(--bg) 60%); display: flex; flex-direction: column; justify-content: center; padding: 0 110px; }
+  .wm { font: 800 150px/0.95 "Bricolage Grotesque", sans-serif; letter-spacing: -0.045em; }
+  .wm b { color: var(--orange); }
+  .tagline { margin-top: 24px; font: 500 40px "Bricolage Grotesque", sans-serif; color: var(--text); letter-spacing: -0.01em; }
+  .install { margin-top: 40px; display: inline-flex; align-items: center; gap: 14px; align-self: flex-start; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 26px; font-size: 30px; }
+  .install .p { color: var(--orange); }
+  .meta { margin-top: 28px; font-size: 21px; color: var(--muted); }
+  .meta span { color: var(--dim); margin: 0 10px; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div class="glow a"></div><div class="glow b"></div>
+  <div class="term" id="term">
+    <div class="bar">
+      <span class="dot" style="background:#ff5f57"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span>
+      <span class="title">claude · ~/my-app</span>
+    </div>
+    <div class="body">
+      <div class="prompt"><span class="chev">›</span><span id="typed"></span><span class="caret" id="caret"></span></div>
+      <div class="using" id="using">⏺ Using <b>shipstores</b> MCP</div>
+      <div class="rows" id="rows"></div>
+    </div>
+  </div>
+  <div class="side" id="side">
+    <h4>Stores</h4>
+    <div class="store" id="ios">
+      <div class="head"><span class="logo" style="background:#1d6fff22;color:#6aa8ff">A</span>App Store</div>
+      <div class="ver">My App · 1.2.0</div>
+      <div class="chip" id="iosChip"><i></i><span></span></div>
+    </div>
+    <div class="store" id="play">
+      <div class="head"><span class="logo" style="background:#3ddc8422;color:#3ddc84">▶</span>Google Play</div>
+      <div class="ver">My App · 1.2.0 (42)</div>
+      <div class="chip" id="playChip"><i></i><span></span></div>
+    </div>
+    <div class="note" id="note">Steps marked <span class="tag" style="margin:0 2px">no public API</span> go through the store console.</div>
+  </div>
+  <div class="outro" id="outro">
+    <div class="wm">shipstores<b>.</b></div>
+    <div class="tagline">Ship iOS and Android apps from your AI agent.</div>
+    <div class="install"><span class="p">$</span>uvx shipstores</div>
+    <div class="meta">App Store Connect<span>·</span>Google Play<span>·</span>Expo EAS<span>·</span>60 tools<span>·</span>MIT</div>
+  </div>
+</div>
+
+<script>
+// The whole animation is a pure function of time: renderAt(t) draws frame t (seconds).
+// That keeps frame-by-frame capture deterministic; the live preview just calls it from rAF.
+const DURATION = 16;
+const PROMPT = "Ship 1.2.0 to both stores and submit for review.";
+
+// [start, tool, args, result, tag]
+const STEPS = [
+  [3.0, "eas_build_start", "ios + android", "2 builds finished"],
+  [3.55, "apple_upload_build", "MyApp.ipa", "processed · VALID"],
+  [4.1, "play_upload_bundle", "internal track", "versionCode 42"],
+  [4.65, "apple_upload_screenshots", "8 per locale", "en-US · pt-BR"],
+  [5.2, "apple_set_app_privacy", "", "label published", "no public API"],
+  [5.75, "play_content_answer", "", "11/11 declarations", "no public API"],
+  [6.3, "apple_submit_for_review", "", "Waiting for Review"],
+  [6.85, "play_submit_for_review", "", "Changes in review"],
+  [9.0, "apple_review_messages", "", "2.1 · screen recording asked", "rejected"],
+  [9.65, "apple_reply_review", "+ demo.mp4", "reply sent"],
+  [10.3, "apple_resubmit_for_review", "", "Waiting for Review"],
+];
+const SPIN = 0.42;
+
+const CHIP = {
+  none:   ["#232a32", "#5b6672", "Not submitted"],
+  wait:   ["#ffb54755", "#ffb547", "Waiting for Review"],
+  review: ["#ffb54755", "#ffb547", "Changes in review"],
+  rej:    ["#ff5a5f66", "#ff5a5f", "Rejected · 2.1"],
+};
+
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const ease = x => 1 - Math.pow(1 - clamp(x), 3);
+const $ = id => document.getElementById(id);
+
+const rowsEl = $("rows");
+const rowEls = STEPS.map(([, name, args, res, tag]) => {
+  const r = document.createElement("div");
+  r.className = "row";
+  const t = tag ? `<span class="tag ${tag === "rejected" ? "r" : ""}">${tag}</span>` : "";
+  r.innerHTML = `<span class="ic"><span class="spin"></span></span><span class="name">${name}</span>` +
+    `<span class="res"><span class="args">${args ? args + " " : ""}</span><span class="out">${t}<span class="ok">→ ${res}</span></span></span>`;
+  rowsEl.appendChild(r);
+  return r;
+});
+
+function chip(el, kind, t0, t) {
+  const [border, color, label] = CHIP[kind];
+  el.style.borderColor = border; el.style.color = color;
+  el.querySelector("i").style.background = color;
+  el.querySelector("span").textContent = label;
+  const k = ease((t - t0) / 0.35);
+  el.style.transform = `scale(${0.92 + 0.08 * k})`;
+  el.style.opacity = 0.4 + 0.6 * k;
+}
+
+function renderAt(t) {
+  // intro fade
+  const intro = ease(t / 0.6);
+  $("term").style.opacity = intro; $("term").style.transform = `translateY(${(1 - intro) * 16}px)`;
+  const sideIn = ease((t - 0.3) / 0.6);
+  $("side").style.opacity = sideIn; $("side").style.transform = `translateY(${(1 - sideIn) * 16}px)`;
+
+  // prompt typing
+  const n = Math.floor(clamp((t - 0.7) / 1.7) * PROMPT.length);
+  $("typed").textContent = PROMPT.slice(0, n);
+  $("caret").style.opacity = t < 2.6 ? 1 : (Math.floor(t * 2) % 2 ? 0 : 1);
+
+  const using = ease((t - 2.6) / 0.3);
+  $("using").style.opacity = using;
+
+  // tool rows
+  STEPS.forEach(([start], i) => {
+    const r = rowEls[i];
+    const k = ease((t - start) / 0.3);
+    r.style.opacity = k; r.style.transform = `translateX(${(1 - k) * 14}px)`;
+    const done = t >= start + SPIN;
+    const ic = r.querySelector(".ic");
+    if (done && !ic.dataset.done) { ic.innerHTML = '<span class="check"></span>'; ic.dataset.done = 1; }
+    if (!done && ic.dataset.done) { ic.innerHTML = '<span class="spin"></span>'; delete ic.dataset.done; }
+    if (!done) ic.firstChild.style.transform = `rotate(${t * 720}deg)`;
+    const out = r.querySelector(".out");
+    out.style.opacity = done ? ease((t - start - SPIN) / 0.25) : 0;
+  });
+
+  // store status
+  const iosState = t >= 10.3 + SPIN ? ["wait", 10.3 + SPIN] : t >= 8.4 ? ["rej", 8.4] : t >= 6.3 + SPIN ? ["wait", 6.3 + SPIN] : ["none", 0];
+  const playState = t >= 6.85 + SPIN ? ["review", 6.85 + SPIN] : ["none", 0];
+  chip($("iosChip"), iosState[0], iosState[1], t);
+  chip($("playChip"), playState[0], playState[1], t);
+
+  // outro, then fade to black for a clean loop
+  const o = ease((t - 12.2) / 0.7);
+  const out = 1 - ease((t - (DURATION - 0.5)) / 0.5);
+  $("outro").style.opacity = o * out;
+  $("outro").style.transform = `scale(${1.03 - 0.03 * o})`;
+  document.body.style.opacity = t > DURATION - 0.5 ? out + (1 - out) * 0 : 1;
+  $("outro").style.display = o > 0 ? "flex" : "none";
+}
+
+window.renderAt = renderAt;
+window.DURATION = DURATION;
+
+if (!location.search.includes("capture")) {
+  const t0 = performance.now();
+  const loop = now => { renderAt(((now - t0) / 1000) % DURATION); requestAnimationFrame(loop); };
+  requestAnimationFrame(loop);
+} else {
+  renderAt(0);
+}
+</script>
+</body>
+</html>

@@ -1,8 +1,5 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/banner-dark.png">
-    <img alt="shipstores — ship iOS and Android apps from your AI agent" src="assets/banner-light.png" width="100%">
-  </picture>
+  <img alt="shipstores: Claude ships an app to the App Store and Google Play, handles an App Review rejection and resubmits" src="assets/demo.gif" width="100%">
 </p>
 
 <p align="center">
