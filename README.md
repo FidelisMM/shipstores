@@ -58,13 +58,7 @@ Neither store lets anyone create an app record through an API, so `*_create_app_
 
 Requirements: Python 3.12+, [uv](https://docs.astral.sh/uv/), an App Store Connect API key and/or a Google Play service account. Xcode command line tools for iOS uploads (`xcrun altool`).
 
-```bash
-git clone https://github.com/FidelisMM/shipstores
-cd shipstores
-uv sync
-```
-
-Add it to Claude Code:
+Add it to Claude Code (no clone needed, `uvx` fetches and runs it):
 
 ```bash
 claude mcp add shipstores \
@@ -72,7 +66,7 @@ claude mcp add shipstores \
   -e ASC_ISSUER_ID=00000000-0000-0000-0000-000000000000 \
   -e ASC_PRIVATE_KEY_PATH=~/.config/shipstores/AuthKey_ABC123XYZ.p8 \
   -e PLAY_SERVICE_ACCOUNT_PATH=~/.config/shipstores/play-service-account.json \
-  -- uv run --directory /path/to/shipstores shipstores
+  -- uvx --from git+https://github.com/FidelisMM/shipstores shipstores
 ```
 
 Then ask your agent: *"run store_doctor"*. It checks both credentials with real calls and detects your Apple Team ID for you.
@@ -94,7 +88,7 @@ Values can also live in `~/.config/shipstores/config.toml` — see [`config.exam
 Privacy labels, availability, App Review replies and Play "App content" forms run through the store consoles' own web endpoints in a dedicated, logged-in browser profile, driven by [browser-harness](https://github.com/browser-use/browser-harness). Log in once:
 
 ```bash
-uv run python -m shipstores.browser login   # opens a window; sign in to both consoles (2FA included)
+uvx --from git+https://github.com/FidelisMM/shipstores python -m shipstores.browser login   # opens a window; sign in to both consoles (2FA included)
 ```
 
 > ⚠️ These features use undocumented console endpoints (the same family fastlane's Spaceship relies on). They work today and are isolated behind small modules, but Apple or Google can change them without notice. PRs that keep them working are very welcome.
