@@ -54,6 +54,12 @@ Publishing a mobile app is ~40 manual steps across two consoles, half of which h
 
 Neither store lets anyone create an app record through an API, so `*_create_app_form` opens the right page in a logged-in browser and returns the exact values to fill. Everything else is automated.
 
+### How it compares
+
+There are other good MCP servers for the stores, such as [app-publish-mcp](https://github.com/mikusnuz/app-publish-mcp) and [mobile-release-mcp](https://github.com/Jeronimo0228/mobile-release-mcp), and they cover the public APIs well. shipstores focuses on the steps that have no public API and usually end up done by hand: replying to App Review, the App Store privacy label and Google Play's "App content" declarations. It also keeps the tool list short (60 tools), and tools that publish or submit say so in their description, so the agent asks before acting.
+
+If you only need what the public APIs offer, any of them will do. If you keep getting stuck on the console-only steps, that's the gap this project fills.
+
 ## Quick start
 
 Requirements: Python 3.12+, [uv](https://docs.astral.sh/uv/), an App Store Connect API key and/or a Google Play service account. Xcode command line tools for iOS uploads (`xcrun altool`).
