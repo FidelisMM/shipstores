@@ -1,7 +1,7 @@
 """Render index.html frame by frame (renderAt(t) is deterministic) and save PNGs.
 
     uvx --from playwright python assets/motion/capture.py /tmp/frames
-    ffmpeg -framerate 30 -i /tmp/frames/f%04d.png -vf "fps=15,scale=960:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=128:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle" assets/demo.gif
+    ffmpeg -framerate 30 -i /tmp/frames/f%04d.png -vf "fps=15,scale=960:-1:flags=neighbor,split[a][b];[a]palettegen=max_colors=96:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle" assets/demo.gif
 
 Open index.html in a browser to preview the loop live.
 """
