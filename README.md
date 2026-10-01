@@ -1,5 +1,5 @@
 <p align="center">
-  <img alt="Shippy, the shipstores robot, delivers an app to the App Store and Google Play, gets rejected by App Review, records a demo video, replies and resubmits" src="assets/demo.gif" width="100%">
+  <img alt="Clawd delivers an app to the App Store and Google Play, gets rejected by App Review, records a demo video, replies and resubmits" src="assets/demo.gif" width="100%">
 </p>
 
 <p align="center">
@@ -186,3 +186,5 @@ Contributions are what make this useful for everyone — new stores' quirks chan
 ## License
 
 [MIT](LICENSE) © Matheus Fidelis. Not affiliated with Apple or Google; App Store Connect and Google Play are trademarks of their owners.
+
+The animated demo features Clawd, the Claude Code mascot by Anthropic. shipstores is an independent project, not affiliated with or endorsed by Anthropic.
