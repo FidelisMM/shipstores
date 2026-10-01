@@ -45,7 +45,7 @@ def _setting(env: str, section: str, key: str, default: str | None = None) -> st
 def load_toolsets() -> frozenset[str]:
     """Return enabled toolsets, always including core diagnostics."""
     configured = os.environ.get("SHIPSTORES_TOOLSETS")
-    if configured is not None:
+    if configured:
         toolsets = {item.strip().lower() for item in configured.split(",") if item.strip()}
     else:
         server_config = _file().get("server", {})

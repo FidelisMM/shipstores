@@ -31,6 +31,11 @@ class LoadToolsetsTests(unittest.TestCase):
         with patch.dict(os.environ, {"SHIPSTORES_TOOLSETS": "apple,eas"}):
             self.assertEqual(load_toolsets(), frozenset({"apple", "core", "eas"}))
 
+    def test_empty_environment_value_falls_back_to_config(self) -> None:
+        self.config_path.write_text('[server]\ntoolsets = ["play"]\n')
+        with patch.dict(os.environ, {"SHIPSTORES_TOOLSETS": ""}):
+            self.assertEqual(load_toolsets(), frozenset({"core", "play"}))
+
     def test_reads_toolsets_from_config(self) -> None:
         self.config_path.write_text('[server]\ntoolsets = ["play"]\n')
         self.assertEqual(load_toolsets(), frozenset({"core", "play"}))
