@@ -641,6 +641,29 @@ def apple_cancel_submission(app_id: str) -> dict[str, Any]:
 
 
 @mcp.tool
+def apple_resubmit_for_review(app_id: str) -> dict[str, Any]:
+    """Resubmit a rejected version after replying to App Review or fixing it. External action.
+
+    Same as "Update Review" on the version page followed by "Resubmit to App
+    Review": marks the rejected items as resolved and submits the same review
+    submission again. Replying in the Resolution Center alone keeps the version
+    Rejected. Attach a new build first (apple_attach_build) if the fix needed one.
+    """
+    sub_id = _active_submission(app_id, ("UNRESOLVED_ISSUES",))
+    items = apple.request("GET", f"/v1/reviewSubmissions/{sub_id}/items")["data"]
+    resolved = []
+    for item in items:
+        if item["attributes"].get("state") == "REJECTED":
+            apple.request("PATCH", f"/v1/reviewSubmissionItems/{item['id']}",
+                          json={"data": {"type": "reviewSubmissionItems", "id": item["id"], "attributes": {"resolved": True}}})
+            resolved.append(item["id"])
+    result = apple.request("PATCH", f"/v1/reviewSubmissions/{sub_id}",
+                           json={"data": {"type": "reviewSubmissions", "id": sub_id, "attributes": {"submitted": True}}})
+    return {"review_submission_id": sub_id, "resolved_items": len(resolved),
+            "state": result["data"]["attributes"].get("state")}
+
+
+@mcp.tool
 def apple_review_messages(app_id: str) -> dict[str, Any]:
     """Read the review messages (Resolution Center) and the rejection reasons.
 
@@ -679,7 +702,7 @@ def apple_reply_review(
         "review_submission_id": sub_id,
         "sent": True,
         "attachments": [str(f) for f in files],
-        "next_step": "Now resubmit: \"Update Review\" on the version page, then resubmit. Replying alone keeps the version Rejected.",
+        "next_step": "Now resubmit with apple_resubmit_for_review: replying alone keeps the version Rejected.",
     }
 
 
