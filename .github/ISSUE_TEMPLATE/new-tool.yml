@@ -1,0 +1,11 @@
+name: New tool
+description: A store step you still do by hand
+labels: [new-tool]
+body:
+  - type: textarea
+    id: step
+    attributes: {label: Which step, description: What you click today, in which store.}
+    validations: {required: true}
+  - type: textarea
+    id: api
+    attributes: {label: API or endpoint, description: Public API docs link, or the console request you saw in DevTools (redact ids).}

@@ -1,0 +1,19 @@
+name: Console flow broke
+description: A tool that drives App Store Connect or Play Console stopped working
+labels: [console-breakage]
+body:
+  - type: input
+    id: tool
+    attributes: {label: Tool, placeholder: apple_set_app_privacy}
+    validations: {required: true}
+  - type: dropdown
+    id: store
+    attributes: {label: Store, options: [App Store Connect, Google Play Console]}
+    validations: {required: true}
+  - type: input
+    id: lang
+    attributes: {label: Console language, placeholder: en-US}
+  - type: textarea
+    id: error
+    attributes: {label: What happened, description: Error output and what you saw in the console. Blur account names.}
+    validations: {required: true}

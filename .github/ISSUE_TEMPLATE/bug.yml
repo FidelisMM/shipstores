@@ -1,0 +1,12 @@
+name: Bug
+description: Something is wrong in a tool that uses the public APIs
+labels: [bug]
+body:
+  - type: input
+    id: tool
+    attributes: {label: Tool}
+    validations: {required: true}
+  - type: textarea
+    id: details
+    attributes: {label: What happened, description: Input you passed and the error. Redact keys and ids.}
+    validations: {required: true}

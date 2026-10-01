@@ -1,0 +1,18 @@
+# Copy to ~/.config/shipstores/config.toml (or point SHIPSTORES_CONFIG at it).
+# Environment variables with the same meaning always win over this file.
+# Never commit the real file: it holds paths to your keys.
+
+[apple]
+key_id = "ABC123XYZ"                                   # ASC_KEY_ID
+issuer_id = "00000000-0000-0000-0000-000000000000"     # ASC_ISSUER_ID
+private_key_path = "~/.config/shipstores/AuthKey_ABC123XYZ.p8"
+# team_id = "ABCDE12345"                               # optional: store_doctor detects it
+
+[play]
+service_account_path = "~/.config/shipstores/play-service-account.json"
+developer_id = "1234567890123456789"                   # number after /developers/ in the Play Console URL
+
+# Needed only for the Play Console form tools (App content, data safety):
+# packageName = number after /app/ in the Play Console URL
+[play.console_app_ids]
+"com.example.myapp" = "4970000000000000000"

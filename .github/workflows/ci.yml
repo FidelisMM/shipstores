@@ -1,0 +1,12 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - run: uv run --with ruff ruff check src --select E9,F
+      - run: uv run python -W error -c "import glob; [compile(open(f).read(), f, 'exec') for f in glob.glob('src/shipstores/*.py')]"
+      - run: uv run python -c "import asyncio; from shipstores.server import mcp; print(len(asyncio.run(mcp.list_tools())), 'tools')"

@@ -1,0 +1,17 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Credentials live in ~/.config/shipstores, never in the repo
+.env
+*.p8
+*service-account*.json
+*play-ops*.json
+config.toml
