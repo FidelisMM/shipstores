@@ -1463,7 +1463,6 @@ def play_update_listing(
     External action: the commit publishes the texts to the store. Google's limits —
     title 30 characters, short description 80, full description 4000.
     """
-    import httpx
 
     fields = {
         key: value

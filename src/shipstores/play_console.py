@@ -103,7 +103,6 @@ crash reports, not the review.
 from __future__ import annotations
 
 import json
-import time
 from typing import Any
 
 from .browser import run_harness
