@@ -19,7 +19,7 @@ async def main():
         browser = await p.chromium.launch()
         page = await browser.new_page(viewport={"width": 1280, "height": 720}, device_scale_factor=1)
         await page.goto((HERE / "index.html").as_uri() + "?capture")
-        await page.evaluate("document.fonts.ready")
+        await page.evaluate("window.ready")
         await page.wait_for_timeout(800)
         duration = await page.evaluate("window.DURATION")
         times = ONLY or [i / FPS for i in range(int(duration * FPS))]

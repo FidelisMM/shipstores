@@ -4,207 +4,366 @@
 <meta charset="utf-8">
 <title>shipstores motion</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,800&family=JetBrains+Mono:wght@400;700&family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
 <style>
-  :root {
-    --bg: #0b0d10; --panel: #12161b; --panel2: #171c22; --line: #232a32;
-    --text: #e8edf2; --muted: #8a96a3; --dim: #5b6672;
-    --orange: #ff6b2c; --green: #3ddc84; --amber: #ffb547; --red: #ff5a5f; --blue: #6aa8ff;
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { width: 1280px; height: 720px; background: var(--bg); overflow: hidden; }
-  body { font-family: "JetBrains Mono", ui-monospace, monospace; color: var(--text); }
-  #stage { position: relative; width: 1280px; height: 720px; padding: 40px; display: flex; gap: 24px; }
-  .glow { position: absolute; width: 700px; height: 700px; border-radius: 50%; filter: blur(120px); opacity: .18; pointer-events: none; }
-  .glow.a { background: var(--orange); left: -260px; top: -320px; }
-  .glow.b { background: #3b6cff; right: -300px; bottom: -380px; opacity: .12; }
-
-  .term { position: relative; flex: 0 0 800px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; box-shadow: 0 30px 80px rgba(0,0,0,.45); }
-  .bar { height: 42px; display: flex; align-items: center; gap: 8px; padding: 0 16px; background: var(--panel2); border-bottom: 1px solid var(--line); }
-  .dot { width: 12px; height: 12px; border-radius: 50%; }
-  .bar .title { margin-left: 12px; font-size: 13px; color: var(--muted); }
-  .body { padding: 26px 30px; font-size: 18px; line-height: 1.5; }
-  .prompt { color: var(--text); min-height: 46px; }
-  .prompt .caret { display: inline-block; width: 10px; height: 21px; background: var(--orange); vertical-align: -3px; margin-left: 2px; }
-  .prompt .chev { color: var(--orange); font-weight: 700; margin-right: 10px; }
-  .using { color: var(--muted); margin: 6px 0 14px; font-size: 16px; }
-  .using b { color: var(--orange); font-weight: 500; }
-  .rows { display: flex; flex-direction: column; gap: 9px; }
-  .row { display: grid; grid-template-columns: 24px 300px 1fr; align-items: center; gap: 12px; font-size: 16px; height: 32px; }
-  .row .ic { width: 18px; height: 18px; position: relative; display: block; }
-  .spin { display: block; width: 18px; height: 18px; border-radius: 50%; border: 2.5px solid #2c343d; border-top-color: var(--orange); }
-  .check { display: block; width: 18px; height: 18px; border-radius: 50%; background: var(--green); position: relative; }
-  .check::after { content: ""; position: absolute; left: 6px; top: 3px; width: 4px; height: 8px; border: solid #0b0d10; border-width: 0 2px 2px 0; transform: rotate(45deg); }
-  .row .name { color: var(--blue); white-space: nowrap; }
-  .row .res { color: var(--muted); white-space: nowrap; overflow: hidden; }
-  .row .res .ok { color: var(--text); }
-  .tag { display: inline-block; font-size: 12.5px; padding: 1px 8px; border-radius: 999px; border: 1px solid rgba(255,107,44,.5); color: var(--orange); margin-right: 8px; letter-spacing: .02em; }
-  .tag.r { border-color: rgba(255,90,95,.55); color: var(--red); }
-
-  .side { flex: 1; display: flex; flex-direction: column; gap: 18px; padding-top: 4px; }
-  .side h4 { font: 500 13px "JetBrains Mono", monospace; color: var(--dim); letter-spacing: .14em; text-transform: uppercase; margin: 6px 4px 0; }
-  .store { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 20px 22px; box-shadow: 0 20px 60px rgba(0,0,0,.35); }
-  .store .head { display: flex; align-items: center; gap: 12px; font: 700 25px "Bricolage Grotesque", sans-serif; }
-  .store .logo { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; font: 700 19px "Bricolage Grotesque", sans-serif; }
-  .store .ver { margin-top: 8px; font-size: 15px; color: var(--muted); }
-  .chip { margin-top: 18px; display: inline-flex; align-items: center; gap: 10px; padding: 9px 16px; border-radius: 999px; font-size: 17px; font-weight: 500; border: 1px solid; }
-  .chip i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
-  .note { font-size: 14px; color: var(--dim); line-height: 1.5; padding: 0 4px; }
-
-  .outro { position: absolute; inset: 0; background: radial-gradient(1200px 700px at 30% 20%, #1a1410 0%, var(--bg) 60%); display: flex; flex-direction: column; justify-content: center; padding: 0 110px; }
-  .wm { font: 800 150px/0.95 "Bricolage Grotesque", sans-serif; letter-spacing: -0.045em; }
-  .wm b { color: var(--orange); }
-  .tagline { margin-top: 24px; font: 500 40px "Bricolage Grotesque", sans-serif; color: var(--text); letter-spacing: -0.01em; }
-  .install { margin-top: 40px; display: inline-flex; align-items: center; gap: 14px; align-self: flex-start; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 26px; font-size: 30px; }
-  .install .p { color: var(--orange); }
-  .meta { margin-top: 28px; font-size: 21px; color: var(--muted); }
-  .meta span { color: var(--dim); margin: 0 10px; }
+  html, body { margin: 0; width: 1280px; height: 720px; background: #0b0d10; overflow: hidden; }
+  canvas { display: block; }
 </style>
 </head>
 <body>
-<div id="stage">
-  <div class="glow a"></div><div class="glow b"></div>
-  <div class="term" id="term">
-    <div class="bar">
-      <span class="dot" style="background:#ff5f57"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span>
-      <span class="title">claude · ~/my-app</span>
-    </div>
-    <div class="body">
-      <div class="prompt"><span class="chev">›</span><span id="typed"></span><span class="caret" id="caret"></span></div>
-      <div class="using" id="using">⏺ Using <b>shipstores</b> MCP</div>
-      <div class="rows" id="rows"></div>
-    </div>
-  </div>
-  <div class="side" id="side">
-    <h4>Stores</h4>
-    <div class="store" id="ios">
-      <div class="head"><span class="logo" style="background:#1d6fff22;color:#6aa8ff">A</span>App Store</div>
-      <div class="ver">My App · 1.2.0</div>
-      <div class="chip" id="iosChip"><i></i><span></span></div>
-    </div>
-    <div class="store" id="play">
-      <div class="head"><span class="logo" style="background:#3ddc8422;color:#3ddc84">▶</span>Google Play</div>
-      <div class="ver">My App · 1.2.0 (42)</div>
-      <div class="chip" id="playChip"><i></i><span></span></div>
-    </div>
-    <div class="note" id="note">Steps marked <span class="tag" style="margin:0 2px">no public API</span> go through the store console.</div>
-  </div>
-  <div class="outro" id="outro">
-    <div class="wm">shipstores<b>.</b></div>
-    <div class="tagline">Ship iOS and Android apps from your AI agent.</div>
-    <div class="install"><span class="p">$</span>uvx shipstores</div>
-    <div class="meta">App Store Connect<span>·</span>Google Play<span>·</span>Expo EAS<span>·</span>60 tools<span>·</span>MIT</div>
-  </div>
-</div>
-
+<canvas id="c" width="1280" height="720"></canvas>
 <script>
-// The whole animation is a pure function of time: renderAt(t) draws frame t (seconds).
-// That keeps frame-by-frame capture deterministic; the live preview just calls it from rAF.
-const DURATION = 16;
-const PROMPT = "Ship 1.2.0 to both stores and submit for review.";
-
-// [start, tool, args, result, tag]
-const STEPS = [
-  [3.0, "eas_build_start", "ios + android", "2 builds finished"],
-  [3.55, "apple_upload_build", "MyApp.ipa", "processed · VALID"],
-  [4.1, "play_upload_bundle", "internal track", "versionCode 42"],
-  [4.65, "apple_upload_screenshots", "8 per locale", "en-US · pt-BR"],
-  [5.2, "apple_set_app_privacy", "", "label published", "no public API"],
-  [5.75, "play_content_answer", "", "11/11 declarations", "no public API"],
-  [6.3, "apple_submit_for_review", "", "Waiting for Review"],
-  [6.85, "play_submit_for_review", "", "Changes in review"],
-  [9.0, "apple_review_messages", "", "2.1 · screen recording asked", "rejected"],
-  [9.65, "apple_reply_review", "+ demo.mp4", "reply sent"],
-  [10.3, "apple_resubmit_for_review", "", "Waiting for Review"],
-];
-const SPIN = 0.42;
-
-const CHIP = {
-  none:   ["#232a32", "#5b6672", "Not submitted"],
-  wait:   ["#ffb54755", "#ffb547", "Waiting for Review"],
-  review: ["#ffb54755", "#ffb547", "Changes in review"],
-  rej:    ["#ff5a5f66", "#ff5a5f", "Rejected · 2.1"],
+// Everything is a pure function of time: renderAt(t) draws frame t (seconds), so the
+// frame-by-frame capture in capture.py is deterministic. The live preview loops it with rAF.
+const W = 1280, H = 720, DURATION = 17, P = 7;   // P = size of one sprite pixel
+const GROUND = 530;
+const C = {
+  bg: "#0b0d10", sky1: "#15111c", sky2: "#0b0d10", ground: "#1a1f26", groundLine: "#2a323c",
+  orange: "#ff6b2c", orangeD: "#c94f1c", white: "#f4f6f8", ink: "#0b0d10", gray: "#8a96a3",
+  dim: "#5b6672", panel: "#12161b", line: "#232a32", green: "#3ddc84", amber: "#ffb547",
+  red: "#ff5a5f", blue: "#6aa8ff", box: "#c8935a", boxD: "#9c6d3e", tape: "#e8c48f",
 };
+const ctx = document.getElementById("c").getContext("2d");
+ctx.imageSmoothingEnabled = false;
 
+// ---------------------------------------------------------------- helpers
 const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
 const ease = x => 1 - Math.pow(1 - clamp(x), 3);
-const $ = id => document.getElementById(id);
-
-const rowsEl = $("rows");
-const rowEls = STEPS.map(([, name, args, res, tag]) => {
-  const r = document.createElement("div");
-  r.className = "row";
-  const t = tag ? `<span class="tag ${tag === "rejected" ? "r" : ""}">${tag}</span>` : "";
-  r.innerHTML = `<span class="ic"><span class="spin"></span></span><span class="name">${name}</span>` +
-    `<span class="res"><span class="args">${args ? args + " " : ""}</span><span class="out">${t}<span class="ok">→ ${res}</span></span></span>`;
-  rowsEl.appendChild(r);
-  return r;
-});
-
-function chip(el, kind, t0, t) {
-  const [border, color, label] = CHIP[kind];
-  el.style.borderColor = border; el.style.color = color;
-  el.querySelector("i").style.background = color;
-  el.querySelector("span").textContent = label;
-  const k = ease((t - t0) / 0.35);
-  el.style.transform = `scale(${0.92 + 0.08 * k})`;
-  el.style.opacity = 0.4 + 0.6 * k;
+const lerp = (a, b, k) => a + (b - a) * k;
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+function rand(i) { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }
+function rr(x, y, w, h, r, fill, stroke, lw = 2) {
+  ctx.beginPath(); ctx.roundRect(x, y, w, h, r);
+  if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+  if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = lw; ctx.stroke(); }
+}
+function text(s, x, y, font, color, align = "left", alpha = 1) {
+  ctx.save(); ctx.globalAlpha *= alpha; ctx.font = font; ctx.fillStyle = color;
+  ctx.textAlign = align; ctx.textBaseline = "middle"; ctx.fillText(s, x, y); ctx.restore();
+}
+function sprite(rows, x, y, pal, flip = false, s = P) {
+  const w = rows[0].length;
+  rows.forEach((row, j) => [...row].forEach((ch, i) => {
+    if (ch === "." || !pal[ch]) return;
+    ctx.fillStyle = pal[ch];
+    ctx.fillRect(Math.round(x + (flip ? w - 1 - i : i) * s), Math.round(y + j * s), s, s);
+  }));
 }
 
-function renderAt(t) {
-  // intro fade
-  const intro = ease(t / 0.6);
-  $("term").style.opacity = intro; $("term").style.transform = `translateY(${(1 - intro) * 16}px)`;
-  const sideIn = ease((t - 0.3) / 0.6);
-  $("side").style.opacity = sideIn; $("side").style.transform = `translateY(${(1 - sideIn) * 16}px)`;
+// ---------------------------------------------------------------- sprites
+// Shippy, the shipstores robot. 14 x 14 sprite pixels (12 body + 2 legs).
+const BODY = [
+  "......GG......",
+  ".......G......",
+  "...OOOOOOOO...",
+  "..OOOOOOOOOO..",
+  ".OOOOOOOOOOOO.",
+  ".OOWWOOOOWWOO.",
+  ".OOWKOOOOWKOO.",
+  ".OOOOOOOOOOOO.",
+  ".OOOOMMMMOOOO.",
+  ".OOOOOOOOOOOO.",
+  "..OOOOOOOOOO..",
+  "...DDDDDDDD...",
+];
+const BLINK = BODY.map((r, j) => j === 5 ? ".OOOOOOOOOOOO." : j === 6 ? ".OOKKOOOOKKOO." : r);
+const SHOCK = BODY.map((r, j) => j === 7 ? ".OOOOOMMOOOOO." : j === 8 ? ".OOOOOMMOOOOO." : r);
+const HAPPY = BODY.map((r, j) => j === 5 ? ".OOKOKOOKOKOO." : j === 6 ? ".OOOOOOOOOOOO." : j === 8 ? ".OOOMOOOOMOOO." : j === 9 ? ".OOOOMMMMOOOO." : r);
+const LEGS = [["....KK..KK....", "....KK..KK...."], ["...KK....KK...", "...KK.....KK.."], ["....KK..KK....", "....KK...KK..."], ["....KK..KK....", "...KK....KK..."]];
+const PAL = { G: C.gray, O: C.orange, D: C.orangeD, W: C.white, K: C.ink, M: C.ink };
 
-  // prompt typing
-  const n = Math.floor(clamp((t - 0.7) / 1.7) * PROMPT.length);
-  $("typed").textContent = PROMPT.slice(0, n);
-  $("caret").style.opacity = t < 2.6 ? 1 : (Math.floor(t * 2) % 2 ? 0 : 1);
+const BOX = [
+  "DBBBTTBBBD",
+  "DBBBTTBBBD",
+  "DBBBTTBBBD",
+  "DBBBBBBBBD",
+  "DBBIIIIBBD",
+  "DBBIIIIBBD",
+  "DBBBBBBBBD",
+  "DDDDDDDDDD",
+];
+const boxPal = icon => ({ B: C.box, D: C.boxD, T: C.tape, I: icon });
 
-  const using = ease((t - 2.6) / 0.3);
-  $("using").style.opacity = using;
+// ---------------------------------------------------------------- story
+const PROMPT = "Ship 1.2.0 to both stores and submit for review.";
+// [time, tool, detail, tag]
+const LOG = [
+  [1.0, "eas_build_start", "ios + android", ""],
+  [4.6, "apple_upload_build", "MyApp.ipa · VALID", ""],
+  [5.0, "apple_set_app_privacy", "label published", "no public API"],
+  [5.4, "apple_submit_for_review", "Waiting for Review", ""],
+  [6.95, "play_upload_bundle", "versionCode 42", ""],
+  [7.35, "play_content_answer", "11/11 declarations", "no public API"],
+  [7.75, "play_submit_for_review", "Changes in review", ""],
+  [9.3, "apple_review_messages", "2.1 · screen recording asked", "rejected"],
+  [10.9, "apple_reply_review", "+ demo.mp4", ""],
+  [11.7, "apple_resubmit_for_review", "Waiting for Review", ""],
+];
+const IOS_X = 740, PLAY_X = 1000, SHOP_W = 230;
 
-  // tool rows
-  STEPS.forEach(([start], i) => {
-    const r = rowEls[i];
-    const k = ease((t - start) / 0.3);
-    r.style.opacity = k; r.style.transform = `translateX(${(1 - k) * 14}px)`;
-    const done = t >= start + SPIN;
-    const ic = r.querySelector(".ic");
-    if (done && !ic.dataset.done) { ic.innerHTML = '<span class="check"></span>'; ic.dataset.done = 1; }
-    if (!done && ic.dataset.done) { ic.innerHTML = '<span class="spin"></span>'; delete ic.dataset.done; }
-    if (!done) ic.firstChild.style.transform = `rotate(${t * 720}deg)`;
-    const out = r.querySelector(".out");
-    out.style.opacity = done ? ease((t - start - SPIN) / 0.25) : 0;
+// robot path: [t, x]
+const PATH = [[0, 170], [2.3, 170], [4.5, IOS_X + 70], [5.9, IOS_X + 70], [6.9, PLAY_X + 70], [8.6, PLAY_X + 70], [9.3, IOS_X + 175], [13.3, IOS_X + 175]];
+function robotX(t) {
+  for (let i = 0; i < PATH.length - 1; i++) {
+    const [t0, x0] = PATH[i], [t1, x1] = PATH[i + 1];
+    if (t <= t1) return { x: lerp(x0, x1, clamp((t - t0) / (t1 - t0))), moving: x0 !== x1 && t > t0, dir: Math.sign(x1 - x0) || 1 };
+  }
+  return { x: PATH[PATH.length - 1][1], moving: false, dir: 1 };
+}
+
+// ---------------------------------------------------------------- scene pieces
+function sky() {
+  const g = ctx.createLinearGradient(0, 0, 0, GROUND);
+  g.addColorStop(0, C.sky1); g.addColorStop(1, C.sky2);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  for (let i = 0; i < 40; i++) {
+    const tw = 0.4 + 0.6 * Math.abs(Math.sin(i * 3.1));
+    ctx.fillStyle = `rgba(255,255,255,${0.14 * tw})`;
+    ctx.fillRect(Math.floor(rand(i) * W), Math.floor(rand(i + 99) * 300) + 120, 3, 3);
+  }
+  ctx.fillStyle = C.ground; ctx.fillRect(0, GROUND, W, H - GROUND);
+  ctx.fillStyle = C.groundLine; ctx.fillRect(0, GROUND, W, 4);
+}
+
+function workshop(t) {
+  const x = 60, w = 230, top = GROUND - 160;
+  rr(x, top, w, 160, 6, "#161b21", C.line);
+  ctx.fillStyle = "#1f262e"; ctx.fillRect(x + 14, top + 46, w - 28, 8);
+  text("my-app", x + w / 2, top + 26, "700 18px Silkscreen", C.gray, "center");
+  if (t > 0.95 && t < 2.25) {            // building sparkles
+    for (let i = 0; i < 8; i++) {
+      const a = (t * 7 + i / 8) % 1;
+      ctx.save(); ctx.globalAlpha = 1 - a;
+      ctx.fillStyle = i % 2 ? C.amber : C.white;
+      ctx.fillRect(170 + Math.cos(i * 1.7) * a * 80, GROUND - 80 - a * 80 + Math.sin(i) * 10, 8, 8);
+      ctx.restore();
+    }
+  }
+}
+
+const STATUS = {
+  none: [C.dim, "—"], wait: [C.amber, "WAITING FOR REVIEW"], review: [C.amber, "IN REVIEW"], rej: [C.red, "REJECTED · 2.1"],
+};
+
+function shop(x, name, color, kind, flash, t) {
+  const top = GROUND - 290;
+  rr(x, top, SHOP_W, 290, 8, "#151a20", C.line);
+  ctx.fillStyle = color; ctx.fillRect(x, top, SHOP_W, 12);
+  for (let i = 0; i < 8; i++) {
+    ctx.fillStyle = i % 2 ? color : "#e8edf2";
+    ctx.fillRect(x + 6 + i * 27.25, top + 62, 27.25, 24);
+  }
+  text(name, x + SHOP_W / 2, top + 38, "700 24px Silkscreen", "#e8edf2", "center");
+  rr(x + 84, GROUND - 100, 62, 100, 4, "#0e1216", C.line);
+  const [c, label] = STATUS[kind];
+  const pulse = flash ? 0.55 + 0.45 * Math.abs(Math.sin(t * 10)) : 1;
+  rr(x + 10, top + 106, SHOP_W - 20, 48, 8, "#0e1216", c, 2.5);
+  text(label, x + SHOP_W / 2, top + 131, "700 15px Silkscreen", c, "center", pulse);
+}
+
+function stamp(t) {
+  if (t < 8.3 || t > 9.6) return;
+  const k = ease(seg(t, 8.3, 8.5));
+  const fade = 1 - seg(t, 9.2, 9.6);
+  const shake = t < 8.6 ? Math.sin(t * 90) * 6 * (1 - seg(t, 8.45, 8.6)) : 0;
+  ctx.save();
+  ctx.translate(IOS_X + SHOP_W / 2 + shake, GROUND - 200);
+  ctx.rotate(-0.18);
+  ctx.scale(lerp(2.6, 1, k), lerp(2.6, 1, k));
+  ctx.globalAlpha = k * fade;
+  rr(-122, -34, 244, 68, 8, "rgba(11,13,16,.85)", C.red, 5);
+  text("REJECTED", 0, 2, "700 34px Silkscreen", C.red, "center");
+  ctx.restore();
+}
+
+function boxAt(x, y, icon, s = 5) { sprite(BOX, x, y, boxPal(icon), false, s); }
+
+function robot(t) {
+  const { x, moving, dir } = robotX(t);
+  const dancing = t > 12.0 && t < 13.3;
+  const hop = dancing ? Math.abs(Math.sin((t - 12) * 9)) * 26 : 0;
+  const jump = t > 8.3 && t < 8.75 ? Math.sin(seg(t, 8.3, 8.75) * Math.PI) * 34 : 0;
+  const bob = moving ? Math.abs(Math.sin(t * 14)) * 4 : 0;
+  const yTop = GROUND - 14 * P - bob - hop - jump;
+  const flip = dancing ? Math.floor(t * 6) % 2 === 1 : dir < 0;
+  let face = Math.floor(t * 10) % 23 === 0 ? BLINK : BODY;
+  if (t > 8.3 && t < 9.6) face = SHOCK;
+  if (t > 11.9) face = HAPPY;
+  const legs = moving ? LEGS[Math.floor(t * 10) % 4] : dancing ? LEGS[Math.floor(t * 12) % 2] : LEGS[0];
+  const left = x - 7 * P;
+
+  const carry = [];
+  if (t >= 2.3 && t < 4.6) carry.push(C.blue, C.green);
+  else if (t >= 4.6 && t < 6.95) carry.push(C.green);
+  carry.forEach((icon, i) => boxAt(left + 24, yTop - 42 - i * 40, icon));
+
+  sprite([...face, ...legs], left, yTop, PAL, flip);
+  if (t > 8.3 && t < 9.6) text("!", x + 62, yTop - 10, "700 52px Silkscreen", C.red, "center");
+
+  if (t > 9.9 && t < 10.95) {             // recording the demo video
+    const px = x + 50, py = yTop + 24;
+    rr(px, py, 26, 44, 4, "#0e1216", C.gray);
+    if (Math.floor(t * 4) % 2) { ctx.fillStyle = C.red; ctx.beginPath(); ctx.arc(px + 13, py + 14, 5, 0, 7); ctx.fill(); }
+    text("REC", px + 13, py - 12, "700 12px Silkscreen", C.red, "center");
+  }
+}
+
+function plane(t) {
+  if (t < 10.9 || t > 11.6) return;
+  const k = ease(seg(t, 10.9, 11.6));
+  const sx = IOS_X + 220, sy = GROUND - 80, ex = IOS_X + 115, ey = GROUND - 205;
+  const x = lerp(sx, ex, k), y = lerp(sy, ey, k) - Math.sin(k * Math.PI) * 70;
+  ctx.save(); ctx.translate(x, y); ctx.rotate(-0.5); ctx.globalAlpha = 1 - seg(t, 11.45, 11.6);
+  ctx.fillStyle = C.white;
+  ctx.beginPath(); ctx.moveTo(-20, 0); ctx.lineTo(20, -9); ctx.lineTo(-7, 11); ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
+function bubble(t) {
+  if (t < 9.4 || t > 10.7) return;
+  const a = ease(seg(t, 9.4, 9.6)) * (1 - seg(t, 10.5, 10.7));
+  const x = robotX(t).x, yTop = GROUND - 14 * P;
+  ctx.save(); ctx.globalAlpha = a;
+  rr(x - 330, yTop - 84, 380, 54, 12, C.white);
+  ctx.beginPath(); ctx.moveTo(x - 6, yTop - 31); ctx.lineTo(x + 12, yTop - 31); ctx.lineTo(x + 8, yTop - 12); ctx.fill();
+  text("they want a screen recording", x - 140, yTop - 57, "700 16px Silkscreen", C.ink, "center");
+  ctx.restore();
+}
+
+function confetti(t) {
+  if (t < 11.9 || t > 13.6) return;
+  const cols = [C.orange, C.green, C.blue, C.amber, C.white];
+  for (let i = 0; i < 80; i++) {
+    const life = t - 11.9 - rand(i) * 0.3;
+    if (life < 0) continue;
+    const ang = -Math.PI / 2 + (rand(i + 7) - 0.5) * 2.4;
+    const sp = 380 + rand(i + 3) * 460;
+    const x = IOS_X + 170 + Math.cos(ang) * sp * life;
+    const y = GROUND - 90 + Math.sin(ang) * sp * life + 720 * life * life;
+    ctx.save(); ctx.translate(x, y); ctx.rotate(life * 12 + i);
+    ctx.globalAlpha = 1 - seg(t, 13.1, 13.6);
+    ctx.fillStyle = cols[i % cols.length]; ctx.fillRect(-5, -2.5, 10, 5); ctx.restore();
+  }
+}
+
+const CAPTIONS = [
+  [0.0, 2.4, "Your agent builds both apps…"],
+  [2.4, 8.2, "…and ships them to both stores."],
+  [8.3, 11.8, "Apple says no. It handles that too."],
+  [11.85, 13.4, "Back in review. You did nothing."],
+];
+function caption(t) {
+  for (const [a, b, s] of CAPTIONS) {
+    if (t < a || t > b) continue;
+    const k = (a === 0 ? 1 : ease(seg(t, a, a + 0.3))) * (1 - seg(t, b - 0.2, b));
+    const red = s.startsWith("Apple");
+    ctx.save(); ctx.globalAlpha = k;
+    text(s, 60, 168 - (1 - k) * 12, "800 44px 'Bricolage Grotesque'", red ? C.red : "#e8edf2");
+    ctx.restore();
+  }
+}
+
+function promptBar(t) {
+  rr(40, 30, W - 80, 64, 14, C.panel, C.line);
+  const n = Math.floor(seg(t, 0.05, 0.9) * PROMPT.length);
+  text("›", 66, 62, "700 22px 'JetBrains Mono'", C.orange);
+  text(PROMPT.slice(0, n), 92, 62, "400 20px 'JetBrains Mono'", "#e8edf2");
+  if (t < 1.0 || Math.floor(t * 2) % 2) {
+    ctx.font = "400 20px 'JetBrains Mono'";
+    ctx.fillStyle = C.orange; ctx.fillRect(92 + ctx.measureText(PROMPT.slice(0, n)).width + 3, 50, 11, 24);
+  }
+  text("shipstores MCP", W - 66, 62, "700 15px 'JetBrains Mono'", C.orange, "right", ease(seg(t, 0.9, 1.2)));
+}
+
+function logPanel(t) {
+  const y0 = 566;
+  rr(40, y0, W - 80, 124, 14, C.panel, C.line);
+  const shown = LOG.filter(([at]) => t >= at).slice(-3);
+  shown.forEach(([at, tool, detail, tag], i) => {
+    const y = y0 + 30 + i * 32;
+    const isLast = i === shown.length - 1;
+    ctx.save(); ctx.globalAlpha = isLast ? ease(seg(t, at, at + 0.25)) : 0.5 + 0.25 * i;
+    ctx.fillStyle = C.green; ctx.beginPath(); ctx.arc(70, y, 8, 0, 7); ctx.fill();
+    ctx.strokeStyle = C.ink; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(66, y); ctx.lineTo(69, y + 3); ctx.lineTo(74.5, y - 3.5); ctx.stroke();
+    text(tool, 92, y, "700 18px 'JetBrains Mono'", C.blue);
+    ctx.font = "700 18px 'JetBrains Mono'";
+    let x = 92 + ctx.measureText(tool).width + 18;
+    if (tag) {
+      ctx.font = "400 13px 'JetBrains Mono'";
+      const tw = ctx.measureText(tag).width + 18, tc = tag === "rejected" ? C.red : C.orange;
+      rr(x, y - 12, tw, 24, 12, null, tc);
+      text(tag, x + tw / 2, y + 1, "400 13px 'JetBrains Mono'", tc, "center");
+      x += tw + 12;
+    }
+    text("→ " + detail, x, y, "400 18px 'JetBrains Mono'", "#c9d2db");
+    ctx.restore();
   });
-
-  // store status
-  const iosState = t >= 10.3 + SPIN ? ["wait", 10.3 + SPIN] : t >= 8.4 ? ["rej", 8.4] : t >= 6.3 + SPIN ? ["wait", 6.3 + SPIN] : ["none", 0];
-  const playState = t >= 6.85 + SPIN ? ["review", 6.85 + SPIN] : ["none", 0];
-  chip($("iosChip"), iosState[0], iosState[1], t);
-  chip($("playChip"), playState[0], playState[1], t);
-
-  // outro, then fade to black for a clean loop
-  const o = ease((t - 12.2) / 0.7);
-  const out = 1 - ease((t - (DURATION - 0.5)) / 0.5);
-  $("outro").style.opacity = o * out;
-  $("outro").style.transform = `scale(${1.03 - 0.03 * o})`;
-  document.body.style.opacity = t > DURATION - 0.5 ? out + (1 - out) * 0 : 1;
-  $("outro").style.display = o > 0 ? "flex" : "none";
 }
 
-window.renderAt = renderAt;
-window.DURATION = DURATION;
+function outro(t) {
+  const k = ease(seg(t, 13.4, 14.1));
+  if (k <= 0) return;
+  const out = 1 - seg(t, DURATION - 0.45, DURATION);
+  ctx.save(); ctx.globalAlpha = k * out;
+  ctx.fillStyle = C.bg; ctx.fillRect(0, 0, W, H);
+  const g = ctx.createRadialGradient(380, 200, 0, 380, 200, 900);
+  g.addColorStop(0, "#1d1510"); g.addColorStop(1, "rgba(11,13,16,0)");
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  ctx.font = "800 150px 'Bricolage Grotesque'"; ctx.fillStyle = "#e8edf2"; ctx.textBaseline = "alphabetic"; ctx.textAlign = "left";
+  const wx = 100, wy = 330;
+  ctx.fillText("shipstores", wx, wy);
+  const ww = ctx.measureText("shipstores").width;
+  ctx.fillStyle = C.orange; ctx.fillRect(wx + ww + 6, wy - 30, 30, 30);
+  text("Ship iOS and Android apps from your AI agent.", wx + 4, wy + 62, "500 40px 'Bricolage Grotesque'", "#e8edf2");
+  rr(wx, wy + 112, 330, 64, 12, C.panel, C.line);
+  text("$", wx + 26, wy + 145, "700 30px 'JetBrains Mono'", C.orange);
+  text("uvx shipstores", wx + 56, wy + 145, "400 30px 'JetBrains Mono'", "#e8edf2");
+  text("App Store Connect · Google Play · Expo EAS · 60 tools · MIT", wx + 2, wy + 222, "400 21px 'JetBrains Mono'", C.gray);
+  // Shippy waves on the right
+  const s = 12, sx = 1010, sy = 240 + Math.sin(t * 3) * 6;
+  sprite([...HAPPY, ...LEGS[0]], sx, sy, PAL, false, s);
+  const up = Math.floor(t * 5) % 2;
+  ctx.fillStyle = C.orange; ctx.fillRect(sx + 13 * s, sy + 7 * s, 2 * s, s);
+  ctx.fillRect(sx + 14 * s, sy + (up ? 4 : 5) * s, s, (up ? 3 : 2) * s);
+  ctx.restore();
+}
 
-if (!location.search.includes("capture")) {
+// ---------------------------------------------------------------- frame
+function renderAt(t) {
+  ctx.clearRect(0, 0, W, H);
+  sky();
+  workshop(t);
+  const iosKind = t >= 11.75 ? "wait" : t >= 8.3 ? "rej" : t >= 5.45 ? "wait" : "none";
+  const playKind = t >= 7.8 ? "review" : "none";
+  shop(IOS_X, "App Store", C.blue, iosKind, t >= 8.3 && t < 11.75, t);
+  shop(PLAY_X, "Google Play", C.green, playKind, false, t);
+  if (t >= 4.6) boxAt(IOS_X + 18, GROUND - 40, C.blue);
+  if (t >= 6.95) boxAt(PLAY_X + 18, GROUND - 40, C.green);
+  if (t >= 1.6 && t < 2.3) { boxAt(100, GROUND - 40, C.blue); boxAt(200, GROUND - 40, C.green); }
+  robot(t);
+  bubble(t);
+  plane(t);
+  stamp(t);
+  confetti(t);
+  caption(t);
+  promptBar(t);
+  logPanel(t);
+  outro(t);
+}
+
+window.DURATION = DURATION;
+window.renderAt = renderAt;
+window.ready = Promise.all([
+  "800 150px 'Bricolage Grotesque'", "800 44px 'Bricolage Grotesque'", "500 40px 'Bricolage Grotesque'",
+  "400 20px 'JetBrains Mono'", "700 18px 'JetBrains Mono'", "700 24px Silkscreen", "700 15px Silkscreen",
+].map(f => document.fonts.load(f))).then(() => true);
+
+window.ready.then(() => {
+  if (location.search.includes("capture")) { renderAt(0.9); return; }
   const t0 = performance.now();
   const loop = now => { renderAt(((now - t0) / 1000) % DURATION); requestAnimationFrame(loop); };
   requestAnimationFrame(loop);
-} else {
-  renderAt(0);
-}
+});
 </script>
 </body>
 </html>
