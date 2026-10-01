@@ -3,6 +3,7 @@
 Everything comes from environment variables, with an optional TOML file for the
 values that are awkward to pass as env (like the Play Console app id map).
 Environment variables always win over the file.
+Tool groups can be selected with SHIPSTORES_TOOLSETS or [server].toolsets.
 
 Config file: ~/.config/shipstores/config.toml (override with
 SHIPSTORES_CONFIG). See config.example.toml in the repository.
@@ -17,6 +18,7 @@ from functools import lru_cache
 from pathlib import Path
 
 CONFIG_DIR = Path.home() / ".config" / "shipstores"
+TOOLSETS = frozenset({"apple", "core", "eas", "play"})
 
 
 class ConfigError(RuntimeError):
@@ -38,6 +40,31 @@ def _setting(env: str, section: str, key: str, default: str | None = None) -> st
         return value
     value = _file().get(section, {}).get(key)
     return str(value) if value not in (None, "") else default
+
+
+def load_toolsets() -> frozenset[str]:
+    """Return enabled toolsets, always including core diagnostics."""
+    configured = os.environ.get("SHIPSTORES_TOOLSETS")
+    if configured is not None:
+        toolsets = {item.strip().lower() for item in configured.split(",") if item.strip()}
+    else:
+        server_config = _file().get("server", {})
+        if not isinstance(server_config, dict):
+            raise ConfigError("[server] must be a table in config.toml.")
+        configured = server_config.get("toolsets")
+        if configured is None:
+            return TOOLSETS
+        if not isinstance(configured, list) or any(
+            not isinstance(item, str) for item in configured
+        ):
+            raise ConfigError("[server] toolsets must be an array of names in config.toml.")
+        toolsets = {item.strip().lower() for item in configured if item.strip()}
+
+    unknown = toolsets - TOOLSETS
+    if unknown:
+        names = ", ".join(sorted(unknown))
+        raise ConfigError(f"Unknown toolset(s): {names}. Choose from: apple, core, eas, play.")
+    return frozenset(toolsets | {"core"})
 
 
 @dataclass(frozen=True)
