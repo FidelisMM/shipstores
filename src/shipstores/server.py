@@ -9,6 +9,7 @@ from typing import Any
 
 import httpx
 from fastmcp import FastMCP
+from mcp.types import ToolAnnotations
 
 from . import apple, apple_console, apple_review, browser, data_safety, eas, play, play_console, signing
 from .config import (
@@ -51,6 +52,11 @@ mcp = FastMCP(
 
 _CORE_TOOLS = {"store_doctor", "store_audit_identity", "store_browser_session"}
 
+# Tools whose docstring says "External action" change something in a store (or
+# reach a person at Apple/Google). Clients that read MCP annotations can gate
+# them without relying on the description text.
+_EXTERNAL_ACTION = ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=True)
+
 
 def _register_tool(function: Callable[..., Any]) -> Any:
     name = function.__name__
@@ -60,7 +66,8 @@ def _register_tool(function: Callable[..., Any]) -> Any:
         toolset = name.partition("_")[0]
         if toolset not in TOOLSETS - {"core"}:
             raise ValueError(f"Tool {name!r} does not belong to a known toolset.")
-    return mcp.tool(tags={toolset})(function)
+    external = "External action" in (function.__doc__ or "")
+    return mcp.tool(tags={toolset}, annotations=_EXTERNAL_ACTION if external else None)(function)
 
 
 # ---------------------------------------------------------------- diagnostics
@@ -699,9 +706,17 @@ def apple_review_messages(app_id: str) -> dict[str, Any]:
 
 @_register_tool
 def apple_reply_review(
-    app_id: str, text: str, attachments: list[str] | None = None
+    app_id: str, text: str, attachments: list[str] | None = None, confirm: bool = False
 ) -> dict[str, Any]:
     """Reply to App Review on a rejected submission, with attachments. External action.
+
+    Two steps, because the reply goes to a person at Apple and cannot be edited
+    or taken back:
+    1. Call with confirm=False (the default). Nothing is sent: it validates the
+       text and attachments, converts videos, finds the rejected submission and
+       returns a preview.
+    2. Show the preview to the user. Only after an explicit yes, call again with
+       the same arguments and confirm=True to send.
 
     For a "Guideline 2.1 - Information Needed" request: send the answers in
     `text` (up to 4000 characters) and the video recorded on the iPhone in
@@ -710,6 +725,8 @@ def apple_reply_review(
     Apple asks. Replying is not enough: the version stays Rejected until you
     resubmit it ("Update Review" on the version page, then resubmit).
     """
+    if not text.strip():
+        raise ValueError("The reply is empty.")
     if len(text) > 4000:
         raise ValueError(f"The reply has {len(text)} characters; the console limit is 4000.")
     files = []
@@ -719,6 +736,20 @@ def apple_reply_review(
             raise FileNotFoundError(f"Attachment not found: {path}")
         files.append(apple_review.prepare_attachment(path))
     sub_id = _active_submission(app_id, ("UNRESOLVED_ISSUES",))
+    if not confirm:
+        return {
+            "sent": False,
+            "preview": {
+                "review_submission_id": sub_id,
+                "text": text,
+                "characters": len(text),
+                "attachments": [str(f) for f in files],
+            },
+            "next_step": (
+                "Nothing was sent. Show this preview to the user; only after an explicit yes, "
+                "call apple_reply_review again with the same arguments and confirm=True."
+            ),
+        }
     apple_review.reply(app_id, sub_id, text, files)
     return {
         "review_submission_id": sub_id,

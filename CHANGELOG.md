@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- `apple_reply_review` is now two-step: the default call validates and returns a preview without sending; it sends only with `confirm=true` (#12). Suggested by u/QuanTradin on r/mcp.
+- Tools marked "External action" now carry MCP tool annotations (`destructiveHint`, `openWorldHint`) so clients can gate them.
+
 ## 0.2.0
 
 - Toolsets: `SHIPSTORES_TOOLSETS` (or `[server] toolsets` in `config.toml`) exposes only the tool groups you need: `apple`, `play` and/or `eas`. Core diagnostics stay on, and the default is still all 60 tools. Thanks @berkay-byte for the first community contribution (#11).
