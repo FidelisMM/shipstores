@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
@@ -704,19 +705,39 @@ def apple_review_messages(app_id: str) -> dict[str, Any]:
     return {"app_id": app_id, "messages": messages, "total": len(messages)}
 
 
+# Preview tokens already used to send a reply, so a repeated confirm cannot send twice.
+_SENT_REPLY_TOKENS: set[str] = set()
+
+
+def _reply_token(app_id: str, sub_id: str, text: str, files: list[Path]) -> str:
+    """Hash of everything that would be sent: the submission, the exact text and each attachment's bytes."""
+    digest = hashlib.sha256()
+    for part in (app_id, sub_id, text):
+        digest.update(part.encode())
+        digest.update(b"\0")
+    for path in files:
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1 << 20), b""):
+                digest.update(chunk)
+        digest.update(b"\0")
+    return digest.hexdigest()[:16]
+
+
 @_register_tool
 def apple_reply_review(
-    app_id: str, text: str, attachments: list[str] | None = None, confirm: bool = False
+    app_id: str, text: str, attachments: list[str] | None = None, confirm_token: str = ""
 ) -> dict[str, Any]:
     """Reply to App Review on a rejected submission, with attachments. External action.
 
     Two steps, because the reply goes to a person at Apple and cannot be edited
     or taken back:
-    1. Call with confirm=False (the default). Nothing is sent: it validates the
-       text and attachments, converts videos, finds the rejected submission and
-       returns a preview.
+    1. Call without confirm_token. Nothing is sent: it validates the text and
+       attachments, converts videos, finds the rejected submission and returns a
+       preview plus a `confirm_token` (a hash of exactly what would be sent).
     2. Show the preview to the user. Only after an explicit yes, call again with
-       the same arguments and confirm=True to send.
+       the same arguments and that confirm_token. If the text, an attachment or
+       the submission changed since the preview, the token no longer matches and
+       nothing is sent. A token can only send once.
 
     For a "Guideline 2.1 - Information Needed" request: send the answers in
     `text` (up to 4000 characters) and the video recorded on the iPhone in
@@ -729,14 +750,16 @@ def apple_reply_review(
         raise ValueError("The reply is empty.")
     if len(text) > 4000:
         raise ValueError(f"The reply has {len(text)} characters; the console limit is 4000.")
-    files = []
+    originals = []
     for item in attachments or []:
         path = Path(item).expanduser()
         if not path.exists():
             raise FileNotFoundError(f"Attachment not found: {path}")
-        files.append(apple_review.prepare_attachment(path))
+        originals.append(path)
     sub_id = _active_submission(app_id, ("UNRESOLVED_ISSUES",))
-    if not confirm:
+    token = _reply_token(app_id, sub_id, text, originals)
+    if not confirm_token:
+        files = [apple_review.prepare_attachment(path) for path in originals]
         return {
             "sent": False,
             "preview": {
@@ -745,12 +768,29 @@ def apple_reply_review(
                 "characters": len(text),
                 "attachments": [str(f) for f in files],
             },
+            "confirm_token": token,
             "next_step": (
                 "Nothing was sent. Show this preview to the user; only after an explicit yes, "
-                "call apple_reply_review again with the same arguments and confirm=True."
+                "call apple_reply_review again with the same arguments and this confirm_token."
             ),
         }
-    apple_review.reply(app_id, sub_id, text, files)
+    if confirm_token in _SENT_REPLY_TOKENS:
+        raise ValueError("This reply was already sent with this confirm_token; nothing was sent again.")
+    if confirm_token != token:
+        raise ValueError(
+            "confirm_token does not match: the text, an attachment or the submission changed since "
+            "the preview. Nothing was sent. Call again without confirm_token for a new preview."
+        )
+    _SENT_REPLY_TOKENS.add(token)
+    files = [apple_review.prepare_attachment(path) for path in originals]
+    try:
+        apple_review.reply(app_id, sub_id, text, files)
+    except Exception as exc:
+        # Failures before the click leave nothing sent, so the same token may retry.
+        # After the click the message may have reached Apple: keep the token burned.
+        if "after sending" not in str(exc):
+            _SENT_REPLY_TOKENS.discard(token)
+        raise
     return {
         "review_submission_id": sub_id,
         "sent": True,

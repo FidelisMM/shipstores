@@ -105,7 +105,7 @@ uvx --from shipstores python -m shipstores.browser login   # opens a window; sig
 
 **Apple: listing & app setup** — `apple_update_listing`, `apple_upload_screenshots`, `apple_set_app_info` (subtitle, URLs, categories, copyright, content rights), `apple_set_age_rating`, `apple_set_free_price`, `apple_set_availability`, `apple_set_app_privacy`, `apple_review_details`, `apple_set_review_details`
 
-**Apple: App Review** — `apple_review_messages` (read the rejection and its guideline), `apple_reply_review` (answer with text + attachments; iPhone HEVC videos are converted to H.264; returns a preview first and only sends with `confirm=true`)
+**Apple: App Review** — `apple_review_messages` (read the rejection and its guideline), `apple_reply_review` (answer with text + attachments; iPhone HEVC videos are converted to H.264; returns a preview and a `confirm_token` first; only sends when called again with that token)
 
 **Apple: subscriptions** — `apple_create_subscription_group`, `apple_create_subscription`, `apple_list_price_points`, `apple_set_subscription_price`, `apple_set_subscription_availability`, `apple_create_intro_offer`, `apple_list_subscriptions`, `apple_upload_subscription_screenshot`
 
@@ -115,7 +115,7 @@ uvx --from shipstores python -m shipstores.browser login   # opens a window; sig
 
 **Expo / EAS** — `eas_build_list`, `eas_build_start`, `eas_build_status`, `eas_build_download`, `eas_submit`
 
-Tools that publish or submit (`apple_submit_for_review`, `apple_resubmit_for_review`, `apple_reply_review`, `apple_cancel_submission`, `apple_set_*`, `apple_testflight_invite`, `play_upload_bundle`, `play_promote_release`, `play_upload_screenshots`) say so in their description, so the agent confirms with you first. They also carry MCP tool annotations (`destructiveHint`), so clients that support them can ask for approval on their own. `apple_reply_review` goes further: the reply reaches a person at Apple, so the server only sends it on a second call with `confirm=true`.
+Tools that publish or submit (`apple_submit_for_review`, `apple_resubmit_for_review`, `apple_reply_review`, `apple_cancel_submission`, `apple_set_*`, `apple_testflight_invite`, `play_upload_bundle`, `play_promote_release`, `play_upload_screenshots`) say so in their description, so the agent confirms with you first. They also carry MCP tool annotations (`destructiveHint`), so clients that support them can ask for approval on their own. `apple_reply_review` goes further: the reply reaches a person at Apple, so the server only sends it on a second call carrying the `confirm_token` from the preview — a hash of the exact text, attachments and submission, usable once.
 
 ## Workflows
 

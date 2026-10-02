@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- `apple_reply_review` is now two-step: the default call validates and returns a preview without sending; it sends only with `confirm=true` (#12). Suggested by u/QuanTradin on r/mcp.
+- `apple_reply_review` is now two-step: the default call validates and returns a preview without sending; it sends only with the `confirm_token` from that preview, a hash of the exact text, attachments and submission, so nothing can change between preview and send, and a token sends only once (#12). Suggested by u/QuanTradin on r/mcp.
 - Tools marked "External action" now carry MCP tool annotations (`destructiveHint`, `openWorldHint`) so clients can gate them.
 
 ## 0.2.0
