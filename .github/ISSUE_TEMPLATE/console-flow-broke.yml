@@ -13,6 +13,12 @@ body:
   - type: input
     id: lang
     attributes: {label: Console language, placeholder: en-US}
+  - type: input
+    id: version
+    attributes: {label: shipstores version, placeholder: "0.2.0", description: "uvx runs the latest release unless you pinned one"}
+  - type: input
+    id: client
+    attributes: {label: MCP client, placeholder: Claude Code, Claude Desktop, Cursor...}
   - type: textarea
     id: error
     attributes: {label: What happened, description: Error output and what you saw in the console. Blur account names.}
