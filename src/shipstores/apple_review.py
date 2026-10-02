@@ -29,6 +29,15 @@ from . import browser
 
 ASC = "https://appstoreconnect.apple.com"
 
+# Printed by the harness script right after the Reply button is clicked. Without it
+# in the output, the failure happened before anything could reach Apple.
+CLICKED = "__SP__clicked"
+
+
+class ReplyNotSent(browser.BrowserError):
+    """The reply failed before the Reply button was clicked: nothing reached Apple."""
+
+
 # Console UI labels, matched literally against the page text (pt-BR and en-US)
 REPLY_OPEN = ("Responda à equipe de revisão de apps", "Reply to App Review")
 REPLY_SEND = ("Responder", "Reply")
@@ -91,7 +100,11 @@ def prepare_attachment(path: Path) -> Path:
 
 
 def reply(app_id: str, submission_id: str, text: str, attachments: list[Path]) -> str:
-    """Reply to App Review through the console box and verify the message landed in the thread."""
+    """Reply to App Review through the console box and verify the message landed in the thread.
+
+    Raises ReplyNotSent only when the failure provably happened before the click.
+    Any other error means the message may have reached Apple.
+    """
     script = f"""
 import time, json
 TEXT = {json.dumps(text)}
@@ -135,6 +148,7 @@ before = js(COUNT)
 sent = js("(()=>{{const b=[...document.querySelectorAll('[role=dialog] button')].filter(b=>%s.includes(b.innerText.trim())).pop(); if(!b) return 'no button'; if(b.disabled) return 'disabled'; b.click(); return 'sent'}})()" % json.dumps(SEND))
 if sent != 'sent':
     raise SystemExit('ERROR: not sent (' + sent + ')')
+print({CLICKED!r}, flush=True)
 for _ in range(15):
     time.sleep(2)
     if js(COUNT) > before: break
@@ -142,8 +156,20 @@ else:
     raise SystemExit('ERROR: the message did not appear in the thread after sending')
 print('__SP__ok')
 """
-    out = browser.run_harness(script, timeout=600)
+    try:
+        out = browser.run_harness(script, timeout=600)
+    except subprocess.TimeoutExpired as exc:
+        partial = exc.stdout.decode(errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+        if partial and CLICKED not in partial:
+            raise ReplyNotSent("Timed out before clicking Reply; nothing was sent.") from exc
+        raise browser.BrowserError("Timed out after clicking Reply; the message may have been sent.") from exc
+    except browser.BrowserError as exc:
+        # Only a failed script run carries its output; anything else may come after the click.
+        if str(exc).startswith(("browser-harness failed", "browser-harness not found")) and CLICKED not in str(exc):
+            erro = next((l for l in str(exc).splitlines() if l.startswith("ERROR")), str(exc)[-500:])
+            raise ReplyNotSent(erro) from exc
+        raise
     if "__SP__ok" not in out:
         erro = next((l for l in out.splitlines() if l.startswith("ERROR")), out[-500:])
-        raise browser.BrowserError(erro)
+        raise (browser.BrowserError if CLICKED in out else ReplyNotSent)(erro)
     return "sent"
