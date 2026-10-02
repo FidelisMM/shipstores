@@ -24,10 +24,11 @@ You don't need store credentials to work on most of the code. To try tools again
 - Tool docstrings are what the agent reads: be precise about preconditions, side effects and the next step.
 - Never commit credentials, account ids, bundle ids of real apps or screenshots with personal data.
 - Keep console automation in its own module (`apple_console.py`, `apple_review.py`, `play_console.py`) so breakage stays contained.
-- Run before opening a PR:
+- Run before opening a PR (the same checks CI runs):
   ```bash
-  uv run ruff check src
-  uv run python -W error -c "import glob; [compile(open(f).read(), f, 'exec') for f in glob.glob('src/shipstores/*.py')]"
+  uv run --with ruff ruff check src tests --select E9,F
+  uv run python -m unittest discover -s tests -v
+  uv run python -W error -c "import pathlib; [compile(p.read_text(), str(p), 'exec') for p in pathlib.Path('src/shipstores').glob('*.py')]"
   ```
 
 ## Reporting a broken console flow
