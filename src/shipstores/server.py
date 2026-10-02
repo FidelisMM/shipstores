@@ -781,16 +781,20 @@ def apple_reply_review(
             "confirm_token does not match: the text, an attachment or the submission changed since "
             "the preview. Nothing was sent. Call again without confirm_token for a new preview."
         )
-    _SENT_REPLY_TOKENS.add(token)
     files = [apple_review.prepare_attachment(path) for path in originals]
+    _SENT_REPLY_TOKENS.add(token)
     try:
         apple_review.reply(app_id, sub_id, text, files)
-    except Exception as exc:
-        # Failures before the click leave nothing sent, so the same token may retry.
-        # After the click the message may have reached Apple: keep the token burned.
-        if "after sending" not in str(exc):
-            _SENT_REPLY_TOKENS.discard(token)
+    except apple_review.ReplyNotSent:
+        # Nothing reached Apple, so the same token may retry.
+        _SENT_REPLY_TOKENS.discard(token)
         raise
+    except Exception as exc:
+        # Unknown outcome: keep the token burned so a retry cannot double-post.
+        raise RuntimeError(
+            f"{exc}\nThe reply may have reached Apple. Check with apple_review_messages "
+            "before sending anything again."
+        ) from exc
     return {
         "review_submission_id": sub_id,
         "sent": True,
