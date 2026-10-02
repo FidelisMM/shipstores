@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Tests for `apple_console.set_privacy`: category × purpose × protection expansion and the validation errors. Thanks @GreedyC (#14).
+- Tests for `with_retry` in `apple.py` and `play.py`: transient failures, giving up, 5xx vs 4xx on Play and the backoff. Thanks @CodeByPeace (#21).
 
 ## 0.2.0
 
