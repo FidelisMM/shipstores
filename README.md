@@ -1,5 +1,5 @@
 <p align="center">
-  <img alt="Clawd delivers an app to the App Store and Google Play, gets rejected by App Review, records a demo video, replies and resubmits" src="assets/demo.gif" width="100%">
+  <img alt="Clawd delivers an app to the App Store and Google Play, gets rejected by App Review, records a demo video, replies and resubmits" src="assets/demo-clawd.gif" width="100%">
 </p>
 
 <p align="center">
