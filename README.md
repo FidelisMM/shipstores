@@ -122,6 +122,9 @@ Tools that publish or submit (`apple_submit_for_review`, `apple_resubmit_for_rev
 Building without Expo? See [native and bare React Native builds](docs/native-builds.md)
 for Xcode archive/export and Gradle release bundles, then continue with the tools below.
 
+**Flutter:** follow the [Flutter build-to-submission guide](docs/flutter.md) for
+`flutter build ipa` / `flutter build appbundle`, then reuse the store steps below.
+
 **New iOS app**
 ```
 apple_register_bundle_id → apple_create_app_form → [fill in the browser]
