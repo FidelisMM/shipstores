@@ -119,6 +119,9 @@ Tools that publish or submit (`apple_submit_for_review`, `apple_resubmit_for_rev
 
 ## Workflows
 
+**Flutter:** follow the [Flutter build-to-submission guide](docs/flutter.md) for
+`flutter build ipa` / `flutter build appbundle`, then reuse the store steps below.
+
 **New iOS app**
 ```
 apple_register_bundle_id → apple_create_app_form → [fill in the browser]
