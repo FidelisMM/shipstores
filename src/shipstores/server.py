@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tempfile
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -171,6 +172,10 @@ def store_browser_session(relogin: bool = False, console: str | None = None) -> 
         "sessions": estado,
     }
     caidas = [k for k, v in estado.items() if not v]
+    if caidas:
+        # Automations fall back to the browser browser-harness drives by default when the
+        # dedicated profile loses its session; this shows whether that path works.
+        out["sessions_in_user_browser"] = {k: browser.session_status_user_browser(k) for k in caidas}
     if caidas and relogin:
         out["action"] = browser.relogin(caidas)
     elif caidas:
@@ -646,20 +651,36 @@ def apple_testflight_invite(
     return {"group": group_name, "group_id": group["id"], "invited": email, "visible_builds": builds}
 
 
+# Canceling takes from seconds to a few minutes (about 1 min in practice).
+CANCEL_WAIT_TRIES = 30
+CANCEL_WAIT_SECONDS = 10
+
+
 @_register_tool
 def apple_cancel_submission(app_id: str) -> dict[str, Any]:
-    """Pull a version submitted for review out of the queue (before Apple decides). External action.
+    """Pull a submission in review, or a rejected one, out of the queue. External action.
 
-    Use it to swap the build without waiting for the review: the version goes back to
-    DEVELOPER_REJECTED and can be resubmitted with apple_submit_for_review.
+    Use it to swap the build without waiting for the review, or on a rejected
+    submission (UNRESOLVED_ISSUES) when the fix is in an item it locks: while the
+    submission exists, a subscription's image and metadata reject edits ("version is
+    not editable"). Waits for CANCELING to finish, since only then are the items
+    unlocked. The version can be resubmitted with apple_submit_for_review.
     """
-    sub_id = _active_submission(app_id, ("WAITING_FOR_REVIEW", "IN_REVIEW", "READY_FOR_REVIEW"))
+    sub_id = _active_submission(
+        app_id, ("WAITING_FOR_REVIEW", "IN_REVIEW", "READY_FOR_REVIEW", "UNRESOLVED_ISSUES")
+    )
     result = apple.request(
         "PATCH",
         f"/v1/reviewSubmissions/{sub_id}",
         json={"data": {"type": "reviewSubmissions", "id": sub_id, "attributes": {"canceled": True}}},
     )
-    return {"review_submission_id": sub_id, "state": result["data"]["attributes"].get("state")}
+    state = result["data"]["attributes"].get("state")
+    for _ in range(CANCEL_WAIT_TRIES):
+        if state != "CANCELING":
+            break
+        time.sleep(CANCEL_WAIT_SECONDS)
+        state = apple.request("GET", f"/v1/reviewSubmissions/{sub_id}")["data"]["attributes"].get("state")
+    return {"review_submission_id": sub_id, "state": state}
 
 
 @_register_tool

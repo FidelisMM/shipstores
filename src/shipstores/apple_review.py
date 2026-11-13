@@ -36,24 +36,39 @@ PROCESSING = ("Processando", "Processing")
 
 
 def read_messages(app_id: str) -> list[dict]:
-    """The app's Resolution Center messages, oldest first."""
+    """The app's Resolution Center messages, oldest first.
+
+    Since the reviewSubmissions flow, the rejection lives in a REJECTION_REVIEW_SUBMISSION
+    thread, which the console shows on the submission page; this endpoint lists it too.
+    A fetch that returns 401/403 is an expired session, never "no messages": that used to
+    come back as an empty list and hide the rejection.
+    """
     script = f"""
 import time, json
 new_tab({f"{ASC}/apps/{app_id}/distribution"!r})
 wait_for_load()
 time.sleep(3)
 js(r\"\"\"window.__sp='running';(async()=>{{
- const g=async p=>{{const r=await fetch(p,{{credentials:'include'}}); return r.ok? r.json(): null}};
+ const g=async p=>{{const r=await fetch(p,{{credentials:'include'}});
+   if(r.status===401||r.status===403) throw new Error('{browser.LOGGED_OUT_MARK} apple');
+   if(!r.ok) throw new Error('HTTP '+r.status+' on '+p); return r.json()}};
  const th=await g('/iris/v1/apps/{app_id}/resolutionCenterThreads');
  const out=[];
- for (const t of ((th&&th.data)||[])) {{
-   const m=await g('/iris/v1/resolutionCenterThreads/'+t.id+'/resolutionCenterMessages?include=rejections&limit=50');
-   const rej=((m&&m.included)||[]).filter(i=>i.type&&i.type.indexOf('ejection')>=0).map(i=>i.attributes.reasons||[]).flat();
-   for (const x of ((m&&m.data)||[])) out.push({{thread:t.id, date:x.attributes.createdDate, sender:x.attributes.fromActor||null,
-     text:(x.attributes.messageBody||'').replace(/<br\\s*\\/?>/g,' ').replace(/<[^>]+>/g,'').trim(), reasons:rej}});
+ for (const t of (th.data||[])) {{
+   const m=await g('/iris/v1/resolutionCenterThreads/'+t.id+'/resolutionCenterMessages?include=fromActor,rejections&limit[rejections]=2000&limit=50');
+   const inc={{}}; for (const i of (m.included||[])) inc[i.type+':'+i.id]=i;
+   const rel=(x,k)=>{{const d=((x.relationships||{{}})[k]||{{}}).data; return d==null?[]:(Array.isArray(d)?d:[d])}};
+   for (const x of (m.data||[])) {{
+     const actor=rel(x,'fromActor').map(d=>inc[d.type+':'+d.id]).filter(Boolean)[0];
+     const reasons=rel(x,'rejections').map(d=>inc[d.type+':'+d.id]).filter(Boolean)
+       .map(r=>(r.attributes.reasons||[]).map(z=>z.reasonCode+' '+z.reasonDescription)).flat();
+     out.push({{thread:t.id, type:t.attributes.threadType||null, date:x.attributes.createdDate,
+       sender:actor?actor.attributes.actorType:null,
+       text:(x.attributes.messageBody||'').replace(/<br\\s*\\/?>/g,' ').replace(/<[^>]+>/g,'').trim(), reasons}});
+   }}
  }}
  window.__sp=JSON.stringify(out.sort((a,b)=>a.date<b.date?-1:1));
-}})().catch(e=>window.__sp='ERROR '+e); 'ok'\"\"\")
+}})().catch(e=>window.__sp='ERROR '+e.message); 'ok'\"\"\")
 for _ in range(40):
     v = js("String(window.__sp)")
     if v != 'running': break
