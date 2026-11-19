@@ -1730,18 +1730,29 @@ def play_upload_bundle(
     status: str = "completed",
     release_name: str | None = None,
     release_notes_pt_br: str | None = None,
+    release_notes: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    """Upload an .aab and release it on a Play track, in a single committed edit.
+    """External action: upload an .aab and release it on a Play track in one edit.
 
-    External action: on commit, the release becomes visible to the track's testers
+    On commit, the release becomes visible to the track's testers
     (or to the public, if track=production). Confirm the track with the user.
 
     track: internal, alpha, beta or production.
     status: completed, draft, inProgress or halted.
+    release_notes: locale-to-text mapping (e.g. {"en-US": "Bug fixes", "es-419": "Correcciones"}).
+        Each note can contain up to 500 Unicode characters.
+    release_notes_pt_br: legacy Brazilian Portuguese note, used if the map has no pt-BR entry.
     """
     path = Path(aab_path).expanduser()
     if not path.exists():
         raise FileNotFoundError(f"File not found: {path}")
+
+    notes = dict(release_notes) if release_notes is not None else {}
+    if release_notes_pt_br:
+        notes.setdefault("pt-BR", release_notes_pt_br)
+    for locale, note in notes.items():
+        if len(note) > 500:
+            raise ValueError(f"Release notes for {locale!r} exceed 500 characters.")
 
     result: dict[str, Any] = {}
     with play.edit_session(package_name) as (edit_id, headers):
@@ -1755,7 +1766,7 @@ def play_upload_bundle(
             headers,
             status=status,
             release_name=release_name,
-            release_notes={"pt-BR": release_notes_pt_br} if release_notes_pt_br else None,
+            release_notes=notes or None,
         )
         result = {"version_code": version_code, "track": track, "status": status}
 
