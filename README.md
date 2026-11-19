@@ -13,7 +13,7 @@
 
 <p align="center">
   <a href="#quick-start">Quick start</a> ·
-  <a href="#tools">60 tools</a> ·
+  <a href="#tools">64 tools</a> ·
   <a href="#workflows">Workflows</a> ·
   <a href="#hard-won-lessons">Hard-won lessons</a> ·
   <a href="CONTRIBUTING.md">Contributing</a>
@@ -53,7 +53,7 @@ Neither store lets anyone create an app record through an API, so `*_create_app_
 
 ### How it compares
 
-There are other good MCP servers for the stores, such as [app-publish-mcp](https://github.com/mikusnuz/app-publish-mcp) and [mobile-release-mcp](https://github.com/Jeronimo0228/mobile-release-mcp), and they cover the public APIs well. shipstores focuses on the steps that have no public API and usually end up done by hand: replying to App Review, the App Store privacy label and Google Play's "App content" declarations. It also keeps the tool list short (60 tools), and tools that publish or submit say so in their description, so the agent asks before acting.
+There are other good MCP servers for the stores, such as [app-publish-mcp](https://github.com/mikusnuz/app-publish-mcp) and [mobile-release-mcp](https://github.com/Jeronimo0228/mobile-release-mcp), and they cover the public APIs well. shipstores focuses on the steps that have no public API and usually end up done by hand: replying to App Review, the App Store privacy label and Google Play's "App content" declarations. It also keeps the tool list short (64 tools), and tools that publish or submit say so in their description, so the agent asks before acting.
 
 If you only need what the public APIs offer, any of them will do. If you keep getting stuck on the console-only steps, that's the gap this project fills.
 
@@ -115,7 +115,7 @@ uvx --from shipstores python -m shipstores.browser login   # opens a window; sig
 
 **Expo / EAS** — `eas_build_list`, `eas_build_start`, `eas_build_local`, `eas_build_status`, `eas_build_download`, `eas_submit`
 
-Tools that publish or submit (`apple_submit_for_review`, `apple_resubmit_for_review`, `apple_reply_review`, `apple_cancel_submission`, `apple_set_*`, `apple_testflight_invite`, `play_upload_bundle`, `play_promote_release`, `play_upload_screenshots`) say so in their description, so the agent confirms with you first. They also carry MCP tool annotations (`destructiveHint`), so clients that support them can ask for approval on their own. `apple_reply_review` goes further: the reply reaches a person at Apple, so the server only sends it on a second call carrying the `confirm_token` from the preview — a hash of the exact text, attachments and submission, usable once.
+Tools that publish or submit (`apple_submit_for_review`, `apple_resubmit_for_review`, `apple_reply_review`, `apple_attach_review_file`, `apple_cancel_submission`, `apple_set_*`, `apple_testflight_invite`, `play_upload_bundle`, `play_promote_release`, `play_upload_screenshots`) say so in their description, so the agent confirms with you first. They also carry MCP tool annotations (`destructiveHint`), so clients that support them can ask for approval on their own. `apple_reply_review` goes further: the reply reaches a person at Apple, so the server only sends it on a second call carrying the `confirm_token` from the preview — a hash of the exact text, attachments and submission, usable once.
 
 ## Workflows
 
