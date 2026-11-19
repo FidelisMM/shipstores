@@ -101,7 +101,7 @@ uvx --from shipstores python -m shipstores.browser login   # opens a window; sig
 
 **Diagnostics** — `store_doctor`, `store_browser_session`, `store_audit_identity`
 
-**Apple: build & release** — `apple_list_apps`, `apple_register_bundle_id`, `apple_create_app_form`, `apple_upload_build`, `apple_list_builds`, `apple_create_version`, `apple_list_versions`, `apple_set_version_string`, `apple_attach_build`, `apple_submit_for_review`, `apple_resubmit_for_review`, `apple_cancel_submission`, `apple_testflight_invite`
+**Apple: build & release** — `apple_list_apps`, `apple_register_bundle_id`, `apple_create_app_form`, `apple_upload_build`, `apple_list_builds`, `apple_wait_build`, `apple_create_version`, `apple_list_versions`, `apple_set_version_string`, `apple_attach_build`, `apple_submit_for_review`, `apple_resubmit_for_review`, `apple_cancel_submission`, `apple_testflight_invite`
 
 **Apple: listing & app setup** — `apple_update_listing`, `apple_upload_screenshots`, `apple_set_app_info` (subtitle, URLs, categories, copyright, content rights), `apple_set_age_rating`, `apple_set_free_price`, `apple_set_availability`, `apple_set_app_privacy`, `apple_review_details`, `apple_set_review_details`
 
@@ -128,7 +128,7 @@ for Xcode archive/export and Gradle release bundles, then continue with the tool
 **New iOS app**
 ```
 apple_register_bundle_id → apple_create_app_form → [fill in the browser]
-→ apple_list_apps → eas_build_start / apple_upload_build → apple_list_builds (wait for VALID)
+→ apple_list_apps → eas_build_start / apple_upload_build → apple_wait_build (until VALID)
 → apple_attach_build → apple_update_listing → apple_set_app_info → apple_set_age_rating
 → apple_set_free_price → apple_set_availability → apple_set_app_privacy
 → apple_upload_screenshots → apple_set_review_details → apple_submit_for_review

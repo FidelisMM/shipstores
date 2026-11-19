@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import tempfile
 import time
 from collections.abc import Callable
@@ -307,6 +308,57 @@ def apple_list_builds(app_id: str, limit: int = 10) -> list[dict[str, Any]]:
         }
         for item in data.get("data", [])
     ]
+
+
+# Interval between apple_wait_build polls. Processing takes 5 to 30 minutes.
+BUILD_POLL_SECONDS = 30
+
+
+@_register_tool
+def apple_wait_build(app_id: str, build_number: str, timeout_min: float = 30) -> dict[str, Any]:
+    """Wait for a build to leave PROCESSING and return its build_id.
+
+    Blocks until build `build_number` (the CFBundleVersion, e.g. "42") reaches
+    VALID, FAILED or INVALID, polling every 30 s. Right after the upload the build
+    is not in the API yet; that counts as waiting, not as an error. With VALID, the
+    build_id can go straight to apple_attach_build.
+    """
+    tries = max(1, math.ceil(timeout_min * 60 / BUILD_POLL_SECONDS))
+    state = "NOT_LISTED_YET"
+    for n in range(tries):
+        if n:
+            time.sleep(BUILD_POLL_SECONDS)
+        data = apple.request(
+            "GET",
+            "/v1/builds",
+            params={
+                "filter[app]": app_id,
+                "filter[version]": build_number,
+                "sort": "-uploadedDate",
+                "limit": 1,
+            },
+        ).get("data", [])
+        if not data:
+            continue
+        build = data[0]
+        state = build["attributes"].get("processingState")
+        if state in ("VALID", "FAILED", "INVALID"):
+            result = {
+                "build_id": build["id"],
+                "build_number": build_number,
+                "processing_state": state,
+                "uploaded_date": build["attributes"].get("uploadedDate"),
+            }
+            if state != "VALID":
+                result["warning"] = (
+                    "Apple rejected the binary. The reason arrives by email to the account; "
+                    "upload a new build with a different build_number."
+                )
+            return result
+    raise apple.AppleError(
+        f"Build {build_number} of app {app_id} still {state} after {timeout_min} min. "
+        "Run apple_wait_build again to keep waiting."
+    )
 
 
 @_register_tool
