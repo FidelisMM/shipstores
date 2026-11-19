@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- New `eas_build_local`: runs `eas build --local` in the background when the EAS Free plan runs out (installing dependencies with `npm ci` if `node_modules` is missing) and returns the log and binary paths right away. `eas_build_start` now points to it when the Free plan quota is used up.
 - New `apple_attach_review_file`: attaches the walkthrough video (HEVC converted to H.264) or a PDF to the version's App Review information through the API, so answering "2.1 Information Needed" no longer depends on the console session: notes with `apple_set_review_details`, video here, then `apple_resubmit_for_review`.
 - New `apple_set_app_name`: changes the App Store name on the editable appInfo, in every language or one `locale`, trying each of `alternatives` in order when Apple says the name is taken (or longer than 30 characters). The editable appInfo is also found on newer accounts that only report `state` (not the deprecated `appStoreState`).
 - `apple_submit_for_review` takes every `READY_TO_SUBMIT` subscription and its group in the same submission as the version (`include_subscriptions=True` by default), reusing the app's open draft. It counts the draft's items and submits nothing if one is missing. When the API refuses a subscription with "no pending version" (after a canceled submission), it goes in through the console's "Add for Review" button, and the item only counts as added once the console shows it in the draft (a disabled button was just the page loading).

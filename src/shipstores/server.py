@@ -2561,16 +2561,49 @@ def eas_build_start(project_path: str, platform: str, profile: str = "production
     eas_build_status using the returned build_id.
 
     platform: ios, android or all. profile: a profile defined in eas.json.
+    If the Free plan's monthly builds run out, the error points to eas_build_local.
     """
-    result = eas.run(
-        ["build", "--platform", platform, "--profile", profile, "--json", "--no-wait"],
-        project_path,
-        timeout=eas.BUILD_START_TIMEOUT,
-    )
+    try:
+        result = eas.run(
+            ["build", "--platform", platform, "--profile", profile, "--json", "--no-wait"],
+            project_path,
+            timeout=eas.BUILD_START_TIMEOUT,
+        )
+    except eas.EasError as exc:
+        if eas.FREE_PLAN_EXHAUSTED in str(exc).lower():
+            raise eas.EasError(
+                f"{exc}\n\nThe account used up this month's Free plan builds. Build on this machine with "
+                f"eas_build_local(project_path, platform={platform!r}, profile={profile!r})."
+            ) from exc
+        raise
     builds = result if isinstance(result, list) else [result]
     return {
         "started": [eas.summarize(build) for build in builds],
         "next_step": "Track it with eas_build_status(build_id).",
+    }
+
+
+@_register_tool
+def eas_build_local(
+    project_path: str, platform: str = "ios", profile: str = "production", output: str | None = None
+) -> dict[str, Any]:
+    """Build on this machine with `eas build --local`, in the background, without using EAS quota.
+
+    The path for when the account runs out of Free plan builds. iOS needs macOS with
+    Xcode, fastlane and CocoaPods; Android needs the Android SDK and a JDK. Installs
+    dependencies with `npm ci` when node_modules is missing. Returns right away with
+    the log and binary paths; the build takes 15 to 30 min. It is done when the log
+    ends with "[eas_build_local] exit=N" (0 = success, binary at artifact_path).
+    Without output, writes to a temporary directory.
+    """
+    started = eas.start_local_build(project_path, platform, profile, output)
+    return {
+        **started,
+        "next_step": (
+            f"Follow the end of the log ({started['log_path']}) until the line "
+            f"'{eas.LOCAL_DONE_MARKER}N'. With exit=0, upload the binary with apple_upload_build and wait "
+            "for processing with apple_wait_build (Android: play_upload_bundle)."
+        ),
     }
 
 

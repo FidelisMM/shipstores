@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,16 @@ SUBMIT_TIMEOUT = 1800
 
 # Commands that reject --non-interactive ("Nonexistent flag") and would always fail
 NO_NON_INTERACTIVE = {"build:view"}
+
+# eas build error once the account used up the Free plan's monthly builds:
+# "This account has used its iOS builds from the Free plan this month"
+FREE_PLAN_EXHAUSTED = "from the free plan"
+
+# Local builds run on this machine; without these tools eas fails halfway through the build
+LOCAL_BUILD_TOOLS = {"ios": ("xcodebuild", "fastlane", "pod")}
+NPM_CI_TIMEOUT = 900
+# Last line of the local build log, with eas's exit code
+LOCAL_DONE_MARKER = "[eas_build_local] exit="
 
 
 class EasError(RuntimeError):
@@ -105,3 +116,76 @@ def download_artifact(url: str, destination: Path) -> Path:
             for chunk in response.iter_bytes(chunk_size=1024 * 1024):
                 handle.write(chunk)
     return destination
+
+
+def ensure_node_modules(path: Path) -> bool:
+    """Run `npm ci` when the project has no installed dependencies.
+
+    eas build reads the config with `npx expo config`, which without node_modules fails
+    with "Failed to resolve plugin for module expo-router". Returns True if it installed.
+    """
+    if (path / "node_modules" / "expo").is_dir():
+        return False
+    if not (path / "package-lock.json").exists():
+        raise EasError(
+            f"{path} has no node_modules and no package-lock.json: install the dependencies "
+            "with the project's package manager before a local build."
+        )
+    npm = shutil.which("npm")
+    if not npm:
+        raise EasError("npm not found on PATH.")
+    result = subprocess.run(
+        [npm, "ci"], cwd=path, capture_output=True, text=True, timeout=NPM_CI_TIMEOUT
+    )
+    if result.returncode != 0:
+        raise EasError(f"npm ci failed (exit {result.returncode}):\n{(result.stdout + result.stderr)[-1500:]}")
+    return True
+
+
+def start_local_build(
+    project_path: str, platform: str, profile: str, output: str | None = None
+) -> dict[str, Any]:
+    """Start `eas build --local` in the background and return the log and binary paths.
+
+    The process outlives the call (its own session); the log ends with
+    LOCAL_DONE_MARKER followed by eas's exit code.
+    """
+    binary = shutil.which("eas")
+    if not binary:
+        raise EasError("eas-cli not found on PATH. Install it with: npm i -g eas-cli")
+    missing = [tool for tool in LOCAL_BUILD_TOOLS.get(platform, ()) if not shutil.which(tool)]
+    if missing:
+        raise EasError(
+            f"A local {platform} build needs {', '.join(missing)} on PATH "
+            "(Xcode, fastlane and CocoaPods, macOS only)."
+        )
+    cwd = _project_dir(project_path)
+    installed = ensure_node_modules(cwd)
+
+    extension = ".ipa" if platform == "ios" else ".aab"
+    artifact = (
+        Path(output).expanduser()
+        if output
+        else Path(tempfile.mkdtemp(prefix="sp-eas-local-")) / f"{profile}{extension}"
+    )
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    log_path = artifact.with_suffix(".log")
+    command = [
+        binary, "build", "--platform", platform, "--profile", profile,
+        "--local", "--non-interactive", "--output", str(artifact),
+    ]
+    with log_path.open("w") as log:
+        process = subprocess.Popen(
+            ["/bin/sh", "-c", f'"$@"; echo "{LOCAL_DONE_MARKER}$?"', "sh", *command],
+            cwd=cwd,
+            stdin=subprocess.DEVNULL,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+    return {
+        "pid": process.pid,
+        "log_path": str(log_path),
+        "artifact_path": str(artifact),
+        "npm_ci": installed,
+    }

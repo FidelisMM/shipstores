@@ -113,7 +113,7 @@ uvx --from shipstores python -m shipstores.browser login   # opens a window; sig
 
 **Play Console forms** — `play_content_status`, `play_content_open`, `play_content_options`, `play_content_answer`, `play_content_save`, `play_data_safety_fill`, `play_data_safety_export`, `play_data_safety_import`
 
-**Expo / EAS** — `eas_build_list`, `eas_build_start`, `eas_build_status`, `eas_build_download`, `eas_submit`
+**Expo / EAS** — `eas_build_list`, `eas_build_start`, `eas_build_local`, `eas_build_status`, `eas_build_download`, `eas_submit`
 
 Tools that publish or submit (`apple_submit_for_review`, `apple_resubmit_for_review`, `apple_reply_review`, `apple_cancel_submission`, `apple_set_*`, `apple_testflight_invite`, `play_upload_bundle`, `play_promote_release`, `play_upload_screenshots`) say so in their description, so the agent confirms with you first. They also carry MCP tool annotations (`destructiveHint`), so clients that support them can ask for approval on their own. `apple_reply_review` goes further: the reply reaches a person at Apple, so the server only sends it on a second call carrying the `confirm_token` from the preview — a hash of the exact text, attachments and submission, usable once.
 
@@ -167,6 +167,7 @@ The part people bookmark. Each one cost a rejected build or a lost afternoon.
 
 **Expo / EAS**
 - `eas submit --non-interactive` refuses App Store Connect API keys; this server downloads the `.ipa` and uploads it through the `buildUploads` API instead.
+- **Out of Free plan builds?** `eas_build_start` fails with *"This account has used its iOS builds from the Free plan this month"* and the error points to `eas_build_local`, which runs `eas build --local` in the background (iOS needs Xcode, fastlane and CocoaPods). It needs `node_modules` installed — without it eas's `npx expo config` fails with *"Failed to resolve plugin for module expo-router"* — so the tool runs `npm ci` first when it is missing. The log ends with `[eas_build_local] exit=N`.
 - `eas build:view` rejects `--non-interactive` ("Nonexistent flag") — a classic source of silent failures in wrappers.
 - APNs keys are per team. After moving an app to another Apple team, a push key from the old team silently stops delivering (`InvalidProviderToken`).
 
