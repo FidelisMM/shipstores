@@ -660,7 +660,9 @@ def _editable_app_info(app_id: str) -> str:
     """The editable appInfo (the one not on sale; if there is only one, that one)."""
     infos = apple.request("GET", f"/v1/apps/{app_id}/appInfos")["data"]
     for info in infos:
-        if info["attributes"].get("appStoreState") != "READY_FOR_SALE":
+        # appStoreState is deprecated; newer accounts only carry `state`
+        state = info["attributes"].get("appStoreState") or info["attributes"].get("state")
+        if state not in ("READY_FOR_SALE", "READY_FOR_DISTRIBUTION", "REMOVED_FROM_SALE"):
             return info["id"]
     return infos[0]["id"]
 
@@ -734,6 +736,67 @@ def apple_set_app_info(
                       json={"data": {"type": "apps", "id": app_id, "attributes": {"contentRightsDeclaration": value}}})
         done.append("contentRightsDeclaration")
     return {"app_id": app_id, "updated": done}
+
+
+# Apple's limit for the app name on the App Store
+APP_NAME_MAX = 30
+
+
+def _name_taken(exc: apple.AppleError) -> bool:
+    """Apple answers 409 when another app on the store already uses the name."""
+    text = str(exc).lower()
+    return "duplicate" in text or "already being used" in text or "already in use" in text
+
+
+@_register_tool
+def apple_set_app_name(
+    app_id: str,
+    name: str,
+    locale: str | None = None,
+    alternatives: list[str] | None = None,
+) -> dict[str, Any]:
+    """Change the app's name on the App Store (appInfoLocalizations.name). External action.
+
+    Changes the editable appInfo (the one for the version being prepared, not the one
+    on sale). Without locale, changes it in every language of the listing. The name
+    must be unique on the App Store and at most 30 characters: if Apple refuses it as
+    already in use, each item of `alternatives` is tried in order, stopping at the
+    first one accepted. apple_set_app_info covers subtitle, URLs and categories, but
+    not the name.
+    """
+    info_id = _editable_app_info(app_id)
+    locs = apple.request("GET", f"/v1/appInfos/{info_id}/appInfoLocalizations")["data"]
+    if locale is not None:
+        locs = [loc for loc in locs if loc["attributes"]["locale"] == locale]
+        if not locs:
+            raise apple.AppleError(f"The appInfo has no {locale} localization.")
+
+    refused: list[dict[str, str]] = []
+    for candidate in [name, *(alternatives or [])]:
+        if len(candidate) > APP_NAME_MAX:
+            refused.append({"name": candidate, "reason": f"longer than {APP_NAME_MAX} characters"})
+            continue
+        try:
+            for loc in locs:
+                apple.request("PATCH", f"/v1/appInfoLocalizations/{loc['id']}",
+                              json={"data": {"type": "appInfoLocalizations", "id": loc["id"],
+                                             "attributes": {"name": candidate}}})
+        except apple.AppleError as exc:
+            if not _name_taken(exc):
+                raise
+            refused.append({"name": candidate, "reason": "already used by another App Store app"})
+            continue
+        return {
+            "app_id": app_id,
+            "name": candidate,
+            "locales": [loc["attributes"]["locale"] for loc in locs],
+            "refused": refused,
+        }
+    raise apple.AppleError(
+        "Apple accepted none of the names: "
+        + "; ".join(f"'{r['name']}' ({r['reason']})" for r in refused)
+        + ". Pass other options in alternatives."
+    )
 
 
 # Neutral age rating answers; overrides change only what the app actually has

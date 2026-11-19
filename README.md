@@ -103,7 +103,7 @@ uvx --from shipstores python -m shipstores.browser login   # opens a window; sig
 
 **Apple: build & release** — `apple_list_apps`, `apple_register_bundle_id`, `apple_create_app_form`, `apple_upload_build`, `apple_list_builds`, `apple_wait_build`, `apple_create_version`, `apple_list_versions`, `apple_set_version_string`, `apple_attach_build`, `apple_submit_for_review`, `apple_resubmit_for_review`, `apple_cancel_submission`, `apple_testflight_invite`
 
-**Apple: listing & app setup** — `apple_update_listing`, `apple_upload_screenshots`, `apple_set_app_info` (subtitle, URLs, categories, copyright, content rights), `apple_set_age_rating`, `apple_set_free_price`, `apple_set_availability`, `apple_set_app_privacy`, `apple_review_details`, `apple_set_review_details`
+**Apple: listing & app setup** — `apple_update_listing`, `apple_upload_screenshots`, `apple_set_app_info` (subtitle, URLs, categories, copyright, content rights), `apple_set_app_name` (the store name, in every language or one, with alternatives if it is taken), `apple_set_age_rating`, `apple_set_free_price`, `apple_set_availability`, `apple_set_app_privacy`, `apple_review_details`, `apple_set_review_details`
 
 **Apple: App Review** — `apple_review_messages` (read the rejection and its guideline), `apple_reply_review` (answer with text + attachments; iPhone HEVC videos are converted to H.264; returns a preview and a `confirm_token` first; only sends when called again with that token)
 
