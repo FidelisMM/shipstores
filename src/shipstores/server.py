@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import tempfile
 import time
@@ -2136,47 +2137,158 @@ def play_data_safety_fill(
     return result
 
 
+# Data safety CSV import, as walked through on a real app. Console labels are pt-BR,
+# matched literally (English in parentheses):
+#   1. "Importar de arquivo CSV" (Import from CSV file) opens dialog 1 (upload), with
+#      "Importar"/"Descartar" (Import/Discard);
+#   2. the file goes in through input[type=file] and the dialog says
+#      "O upload do arquivo CSV foi concluído" (The CSV file upload is complete);
+#   3. "Importar" in dialog 1 opens dialog 2, "Importar de arquivo CSV?" (Import from CSV
+#      file?), with "Cancelar"/"Importar". Only its "Importar" applies the CSV.
+#      ax_click(index=1) does not reach that button; real_click on the button of the LAST
+#      dialog does;
+#   4. once applied, the dialogs close and the wizard jumps to step 2. "Salvar" (Save) only
+#      exists on step 5, so it is "Avançar" (Next) until there and then "Salvar"; the
+#      console answers "A mudança foi salva" (The change was saved).
+# Uses __PLACEHOLDER__ because the body is JS full of braces.
+_DS_IMPORT_SCRIPT = r"""
+URL, CSV, DRY_RUN = __URL__, __CSV__, __DRY_RUN__
+res = {'upload_ok': False, 'confirm_dialog': False, 'imported': False,
+       'steps': [], 'errors': [], 'saved': False}
+# Visible dialogs only: after the second "Importar" the upload dialog stays in the DOM
+# with zero height and visibility hidden, and counting it made the import look refused.
+VISIBLE = ("Array.from(document.querySelectorAll('[role=dialog]'))"
+           ".filter(d=>d.getBoundingClientRect().height>0&&getComputedStyle(d).visibility!=='hidden')")
+DIALOGS = "JSON.stringify(" + VISIBLE + ".map(d=>d.innerText))"
+LAST_BUTTON = ("(()=>{const ds=" + VISIBLE + ";"
+               "const d=ds[ds.length-1]; if(!d) return null;"
+               "return Array.from(d.querySelectorAll('button')).find(b=>b.innerText.trim()==='%s')})()")
+
+def dialogs():
+    return json.loads(js(DIALOGS) or '[]')
+
+def wait_until(cond, seconds):
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        if cond():
+            return True
+        time.sleep(1)
+    return False
+
+def step():
+    m = re.search(r'Etapa (\d) de 5', body())
+    return int(m.group(1)) if m else None
+
+def visible_errors():
+    return json.loads(js("JSON.stringify(Array.from(document.querySelectorAll('mat-error,[role=alert]'))"
+                         ".map(e=>e.innerText.trim()).filter(Boolean).slice(0,10))") or '[]')
+
+def finish(reason=None):
+    if reason:
+        res['stopped_at'] = reason
+    print('RESULT=' + json.dumps(res, ensure_ascii=False))
+
+def import_csv():
+    goto_url(URL)
+    wait_for_load()
+    time.sleep(9)
+    res['open'] = ax_click(r'^Importar de arquivo CSV$', pause=4)
+    if not wait_until(lambda: any('Para importar as respostas' in d for d in dialogs()), 15):
+        return finish('the upload dialog did not open')
+    root = cdp('DOM.getDocument')['root']['nodeId']
+    target = cdp('DOM.querySelector', nodeId=root, selector='input[type=file]')['nodeId']
+    if not target:
+        return finish('input[type=file] not found in the upload dialog')
+    cdp('DOM.setFileInputFiles', files=[CSV], nodeId=target)
+    if not wait_until(lambda: any('upload do arquivo CSV foi concluído' in d for d in dialogs()), 30):
+        res['dialogs'] = [d[:600] for d in dialogs()]
+        return finish('the CSV upload did not complete (file refused?)')
+    res['upload_ok'] = True
+
+    # dialog 1 -> "Importar" opens confirmation dialog 2
+    res['import_1'] = real_click(LAST_BUTTON % 'Importar', pause=3)
+    if not wait_until(lambda: any(d.startswith('Importar de arquivo CSV?') for d in dialogs()), 15):
+        res['dialogs'] = [d[:600] for d in dialogs()]
+        return finish('the "Importar de arquivo CSV?" confirmation dialog did not appear')
+    res['confirm_dialog'] = True
+
+    if DRY_RUN:
+        res['cancel'] = real_click(LAST_BUTTON % 'Cancelar', pause=3)
+        res['remaining_dialogs'] = len(dialogs())
+        return finish('dry_run: confirmation canceled, nothing applied')
+
+    res['import_2'] = real_click(LAST_BUTTON % 'Importar', pause=3)
+    # Applied, both dialogs close (and the wizard may jump to step 2)
+    if not wait_until(lambda: not dialogs(), 20):
+        res['dialogs'] = [d[:600] for d in dialogs()]
+        return finish('the CSV was not applied: the confirmation dialog is still open')
+    res['imported'] = True
+
+    current = step()
+    res['steps'].append(current)
+    while current is not None and current < 5:
+        ax_click(r'^Avançar$', pause=5)
+        new = step()
+        res['steps'].append(new)
+        if new is None or new <= current:
+            res['errors'] = visible_errors()
+            return finish('the wizard did not move past step ' + str(current) + ' (an answer missing from the CSV?)')
+        current = new
+    if current != 5:
+        return finish('could not find step 5 (Preview) to save')
+    res['save'] = ax_click(r'^Salvar$', pause=8)
+    res['saved'] = wait_until(lambda: 'A mudança foi salva' in body(), 15)
+    res['errors'] = visible_errors()
+    return finish(None if res['saved'] else 'clicked Save but the console did not confirm')
+
+import_csv()
+"""
+
+
 @_register_tool
-def play_data_safety_import(package_name: str, csv_path: str) -> dict[str, Any]:
-    """Import the filled-in CSV into the Data safety declaration.
+def play_data_safety_import(
+    package_name: str, csv_path: str, dry_run: bool = False
+) -> dict[str, Any]:
+    """Import the filled-in CSV into the Data safety declaration and save it.
 
     External action: replaces the app's entire declaration. Review the summary from
     play_data_safety_fill with the user before calling.
+
+    The console asks for two confirmations: the upload dialog ("Import") and then
+    "Import from CSV file?" ("Import" again). Only the second one applies the file.
+    Then the wizard is walked with "Next" up to the Preview, where "Save" stores it.
+    `imported` is True only when both dialogs closed after the second "Import";
+    `saved` is True only when the console answers that the change was saved. If a step
+    does not advance (an answer missing), it stops without saving and returns the errors.
+
+    dry_run=True goes as far as the "Import from CSV file?" dialog and clicks "Cancel":
+    it checks that the console accepts the file without applying or saving anything.
+    Console labels are matched in pt-BR.
     """
     dev_id, app_id = _console_ids(package_name)
-    path = Path(csv_path).expanduser()
+    path = Path(csv_path).expanduser().resolve()
     if not path.exists():
         raise FileNotFoundError(f"CSV not found: {path}")
+    url = play_console.form_url(dev_id, app_id, "data_safety")
     out = play_console.run(
         dev_id,
         app_id,
-        f'goto_url("{play_console.CONSOLE}/developers/{dev_id}/app/{app_id}'
-        '/app-content/data-privacy-security")\n'
-        "wait_for_load()\ntime.sleep(9)\n"
-        # Button labels are console UI text, matched literally (pt-BR):
-        # "Importar de arquivo CSV" (Import from CSV file), "Importar" (Import),
-        # "Fazer upload" (Upload), "Continuar" (Continue), "Salvar" (Save)
-        'print(ax_click(r"Importar de arquivo CSV", pause=6))\n'
-        # The native file picker does not open over CDP, but the page's
-        # input[type=file] accepts the file directly via DOM.setFileInputFiles.
-        'root = cdp("DOM.getDocument")["root"]["nodeId"]\n'
-        'target = cdp("DOM.querySelector", nodeId=root, selector="input[type=file]")["nodeId"]\n'
-        'if not target:\n'
-        '    raise RuntimeError("input[type=file] not found on the Data safety page")\n'
-        f'cdp("DOM.setFileInputFiles", files=[{str(path)!r}], nodeId=target)\n'
-        'time.sleep(8)\n'
-        'print(ax_click(r"^(Importar|Fazer upload|Continuar)$", pause=8))\n'
-        'print(ax_click(r"^Salvar$", pause=8))\n'
-        'print(dismiss_dialog())\n',
+        _DS_IMPORT_SCRIPT.replace("__URL__", repr(url))
+        .replace("__CSV__", repr(str(path)))
+        .replace("__DRY_RUN__", repr(dry_run)),
+        timeout=420,
     )
-    return {
-        "csv": str(path),
-        "result": out.strip()[-800:],
-        "warning": (
-            "Confirm with play_data_safety_export that the values were applied — in "
-            "some states the console accepts the click without applying the file."
-        ),
-    }
+    line = next(
+        (ln for ln in reversed(out.strip().splitlines()) if ln.startswith("RESULT=")), None
+    )
+    if not line:
+        raise RuntimeError(f"The import returned no result. Output:\n{out.strip()[-1500:]}")
+    result = json.loads(line.removeprefix("RESULT="))
+    result["csv"] = str(path)
+    result["dry_run"] = dry_run
+    if not dry_run:
+        result["ok"] = result["imported"] and result["saved"]
+    return result
 
 
 # ----------------------------------------------------------------------- eas
