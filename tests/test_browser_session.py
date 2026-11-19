@@ -64,6 +64,19 @@ class HeadlessReturnTests(unittest.TestCase):
                 patch.object(browser, "return_to_headless", side_effect=AssertionError("closed the login window")):
             self.assertEqual(browser.ensure_headless(), browser.CDP_URL)
 
+    def test_login_in_progress_includes_apples_own_login_page(self) -> None:
+        for url, expected in (
+            ("https://appstoreconnect.apple.com/login?targetUrl=%2Fapps", True),
+            ("https://idmsa.apple.com/appleauth/auth/signin", True),
+            ("https://accounts.google.com/v3/signin", True),
+            ("https://appstoreconnect.apple.com/apps", False),
+        ):
+            with self.subTest(url=url):
+                tabs = [{"type": "page", "url": url}]
+                with patch.object(browser.httpx, "get") as get:
+                    get.return_value.json.return_value = tabs
+                    self.assertIs(browser._login_in_progress(), expected)
+
     def test_new_chrome_gets_the_saved_cookies(self) -> None:
         calls = []
         alive = iter([False, True])

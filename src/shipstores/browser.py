@@ -103,7 +103,8 @@ def _login_in_progress() -> bool:
     except Exception:  # noqa: BLE001
         return False
     return any(
-        t.get("type") == "page" and any(f"://{h}/" in t.get("url", "") for h in _LOGIN_HOSTS)
+        t.get("type") == "page"
+        and any(re.search(rf"://{re.escape(h)}[/?]", t.get("url", "")) for h in _LOGIN_HOSTS)
         for t in tabs
     )
 
