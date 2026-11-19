@@ -9,6 +9,8 @@
 - Expired Apple sessions are detected when the console redirects to its own `/login?authResult=FAILED`, and `store_browser_session` checks the internal API instead of trusting the URL 4 s after load.
 - When the dedicated profile is logged out, console automations retry in the browser that browser-harness drives by default before asking for a 2FA login.
 - `apple_cancel_submission` also cancels a rejected submission (`UNRESOLVED_ISSUES`) and waits for `CANCELING` to finish, which unlocks subscription images and metadata for editing.
+- `apple_reply_review` is now two-step: the default call validates and returns a preview without sending; it sends only with the `confirm_token` from that preview, a hash of the exact text, attachments and submission, so nothing can change between preview and send, and a token sends only once (#12). Suggested by u/QuanTradin on r/mcp.
+- Tools marked "External action" now carry MCP tool annotations (`destructiveHint`, `openWorldHint`) so clients can gate them.
 
 ## 0.2.0
 
