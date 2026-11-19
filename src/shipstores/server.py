@@ -1738,6 +1738,7 @@ def play_upload_bundle(
 
     track: internal, alpha, beta or production.
     status: completed, draft, inProgress or halted.
+    Apps that have never been published require status="draft".
     """
     path = Path(aab_path).expanduser()
     if not path.exists():
@@ -1747,16 +1748,25 @@ def play_upload_bundle(
     with play.edit_session(package_name) as (edit_id, headers):
         bundle = play.upload_bundle(package_name, path, edit_id, headers)
         version_code = int(bundle["versionCode"])
-        play.assign_track(
-            package_name,
-            track,
-            [version_code],
-            edit_id,
-            headers,
-            status=status,
-            release_name=release_name,
-            release_notes={"pt-BR": release_notes_pt_br} if release_notes_pt_br else None,
-        )
+        try:
+            play.assign_track(
+                package_name,
+                track,
+                [version_code],
+                edit_id,
+                headers,
+                status=status,
+                release_name=release_name,
+                release_notes={"pt-BR": release_notes_pt_br} if release_notes_pt_br else None,
+            )
+        except play.PlayError as exc:
+            if "Only releases with status draft may be created on draft app." in str(exc):
+                raise play.PlayError(
+                    'The app is still a draft. Call play_upload_bundle again with '
+                    'status="draft". The requested status was not changed. '
+                    f"Original Play error: {exc}"
+                ) from exc
+            raise
         result = {"version_code": version_code, "track": track, "status": status}
 
     result["committed"] = True

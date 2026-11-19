@@ -152,6 +152,8 @@ Everything after reading the rejection is API only, so it does not depend on the
 
 ## Hard-won lessons
 
+- **Google Play draft apps require draft releases.** If Play rejects the release because the app is still a draft, call `play_upload_bundle` again with `status="draft"`. The tool does not retry or change the requested status.
+
 The part people bookmark. Each one cost a rejected build or a lost afternoon.
 
 **App Store Connect**
