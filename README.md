@@ -111,6 +111,10 @@ uvx --from shipstores python -m shipstores.browser login   # opens a window; sig
 
 **Google Play** — `play_create_app_form`, `play_track_status`, `play_upload_bundle`, `play_promote_release`, `play_update_listing`, `play_upload_screenshots`, `play_list_screenshots`, `play_contact_details`, `play_set_contact_details`, `play_signing_sha1`, `play_submission_status`, `play_submit_for_review`
 
+`play_upload_bundle` accepts release notes by locale, for example `release_notes={"en-US": "Bug fixes", "es-419": "Correcciones"}`.
+Each note is limited to 500 characters and checked before upload.
+The legacy `release_notes_pt_br` argument still supplies the Brazilian Portuguese note unless `release_notes` already contains `pt-BR`.
+
 **Play Console forms** — `play_content_status`, `play_content_open`, `play_content_options`, `play_content_answer`, `play_content_save`, `play_data_safety_fill`, `play_data_safety_export`, `play_data_safety_import`
 
 **Expo / EAS** — `eas_build_list`, `eas_build_start`, `eas_build_local`, `eas_build_status`, `eas_build_download`, `eas_submit`
