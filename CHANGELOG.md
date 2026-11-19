@@ -5,6 +5,9 @@
 - Tests for `apple_console.set_privacy`: category × purpose × protection expansion and the validation errors. Thanks @GreedyC (#14).
 - Tests for `with_retry` in `apple.py` and `play.py`: transient failures, giving up, 5xx vs 4xx on Play and the backoff. Thanks @CodeByPeace (#21).
 - Tests for `play_console.parse_json_tail` and `form_url`. Thanks @vgvr0 (#27).
+- Tests for `data_safety.build_responses` and `fill_csv`. Thanks @GreedyC (#28).
+- Tests for `apple_console.set_availability`: territory normalization and the new-territory flag. Thanks @GreedyC (#29).
+- Docs: [native Xcode and Gradle builds](docs/native-builds.md) and a [Flutter workflow](docs/flutter.md). Thanks @GreedyC (#30, #31).
 - App Review: `apple_review_messages` no longer returns an empty list when the App Store Connect session expired (401 on `/iris`); it reports the expired session instead, and fills in who sent each message and the reasons per message.
 - Expired Apple sessions are detected when the console redirects to its own `/login?authResult=FAILED`, and `store_browser_session` checks the internal API instead of trusting the URL 4 s after load.
 - When the dedicated profile is logged out, console automations retry in the browser that browser-harness drives by default before asking for a 2FA login.
