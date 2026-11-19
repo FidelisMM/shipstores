@@ -163,7 +163,9 @@ def store_browser_session(relogin: bool = False, console: str | None = None) -> 
 
     With relogin=True, opens Chrome WITH a window so a person can authenticate
     (2FA cannot be automated). Pass `console` ('play' or 'apple') to open only
-    the one that expired.
+    the one that expired. Without relogin and with both sessions alive, a login
+    window left open is closed (Browser.close, not pkill, with the console cookies
+    saved first) and everything goes back to running headless.
     """
     if not browser.PROFILE_DIR.exists():
         return {
@@ -184,6 +186,9 @@ def store_browser_session(relogin: bool = False, console: str | None = None) -> 
         # Automations fall back to the browser browser-harness drives by default when the
         # dedicated profile loses its session; this shows whether that path works.
         out["sessions_in_user_browser"] = {k: browser.session_status_user_browser(k) for k in caidas}
+    if not caidas and browser.return_to_headless():
+        # Logged in and the login window is still open: close it so it stops taking the screen.
+        out["window"] = "closed; the next operations run headless"
     if caidas and relogin:
         out["action"] = browser.relogin(caidas)
     elif caidas:
