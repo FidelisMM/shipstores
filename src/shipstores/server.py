@@ -2113,6 +2113,11 @@ def play_data_safety_fill(
     account_deletion_url: str | None = None,
     encrypted_in_transit: bool = True,
     supports_deletion: bool = True,
+    account_creation: str | list[str] | None = None,
+    account_creation_other: str | None = None,
+    external_accounts: bool | None = None,
+    external_account_types: list[str] | None = None,
+    external_account_description: str | None = None,
 ) -> dict[str, Any]:
     """Fill in the Data safety CSV and return a summary of what was declared.
 
@@ -2123,12 +2128,37 @@ def play_data_safety_fill(
     collected_data maps the Response ID of each collected data type (e.g. "PSL_EMAIL") to
     {"group": "PSL_DATA_TYPES_PERSONAL", "shared": false, "optional": false,
      "purposes": ["PSL_APP_FUNCTIONALITY", "PSL_ACCOUNT_MANAGEMENT"]}.
+
+    Accounts (the questions at the top of the template):
+    - account_creation: how users create an account IN the app. A list with
+      "password" (username and password), "other_auth" (username and other
+      authentication), "password_and_other_auth", "oauth", "other" (needs
+      account_creation_other), or "none" (the app does not allow creating accounts;
+      alone). Response IDs (PSL_ACM_*) are accepted too. Omitted = ["password",
+      "oauth"]. Methods not chosen are written empty. With "none",
+      account_deletion_url only goes to the data deletion URL.
+    - external_accounts: can users log in with an account created OUTSIDE the app
+      (e.g. the company registers the customer)? Omitted = the question is left as
+      is. With True, pass external_account_types: "outside_app_id" (SIM card, service
+      subscription), "enterprise" or "other" (needs external_account_description).
+
+    Example (accounts created by the provider, no sign-up in the app):
+      account_creation="none", external_accounts=True,
+      external_account_types=["other"],
+      external_account_description="Accounts are created by the provider for customers under contract."
     """
     responses = data_safety.build_responses(
         collected_data,
         encrypted_in_transit=encrypted_in_transit,
         supports_deletion=supports_deletion,
         account_deletion_url=account_deletion_url,
+        account_methods=(
+            data_safety.DEFAULT_ACCOUNT_METHODS if account_creation is None else account_creation
+        ),
+        account_creation_other=account_creation_other,
+        external_accounts=external_accounts,
+        external_account_types=external_account_types or (),
+        external_account_description=external_account_description,
     )
     result = data_safety.fill_csv(
         Path(template_path).expanduser(), Path(destination_path).expanduser(), responses

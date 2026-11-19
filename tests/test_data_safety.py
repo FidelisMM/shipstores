@@ -72,7 +72,8 @@ class BuildResponsesTests(unittest.TestCase):
         self.assertEqual(responses[("PSL_ACCOUNT_DELETION_URL", "")], url)
         self.assertEqual(responses[("PSL_DATA_DELETION_URL", "")], url)
         self.assertEqual(responses[("PSL_SUPPORTED_ACCOUNT_CREATION_METHODS", "PSL_ACM_OAUTH")], "true")
-        self.assertNotIn(("PSL_SUPPORTED_ACCOUNT_CREATION_METHODS", "PSL_ACM_USER_ID_PASSWORD"), responses)
+        # Methods not chosen are cleared, so a template exported from a filled-in app keeps no stale checks
+        self.assertEqual(responses[("PSL_SUPPORTED_ACCOUNT_CREATION_METHODS", "PSL_ACM_USER_ID_PASSWORD")], "")
         empty = build_responses({}, account_methods=())
         self.assertFalse(any(question == "PSL_SUPPORTED_ACCOUNT_CREATION_METHODS" for question, _ in empty))
 
