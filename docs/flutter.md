@@ -40,11 +40,11 @@ paths and IDs; paths must be accessible to the machine running shipstores.
 {"tool":"apple_upload_build","arguments":{"ipa_path":"/absolute/path/to/flutter-app/build/ios/ipa/your-app.ipa","platform":"ios"}}
 ```
 
-`apple_upload_build` invokes `xcrun altool`, so the upload host needs Apple's
-command-line tooling too. Uploading does not submit the app for review.
+`apple_upload_build` uploads through the App Store Connect `buildUploads` API, so
+the upload host does not need Xcode. Uploading does not submit the app for review.
 
-Use `apple_list_apps` to identify the app, then `apple_list_builds` until the
-chosen build's `processingState` is `VALID`. Create/find an App Store version
+Use `apple_list_apps` to identify the app, then `apple_wait_build(app_id,
+build_number)` until the chosen build's `processingState` is `VALID`. Create/find an App Store version
 with `apple_create_version` / `apple_list_versions`, then call
 `apple_attach_build(version_id, build_id)`. A build ID and a version ID are
 different; do not pass the app ID in either position.

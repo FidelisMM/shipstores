@@ -92,7 +92,6 @@ def store_doctor() -> dict[str, Any]:
         "team_id": apple_cfg.team_id,
         "private_key_path": str(apple_cfg.private_key_path),
         "private_key_exists": apple_cfg.private_key_path.exists(),
-        "altool_key_dir": str(apple_cfg.private_key_path.parent),
     }
     try:
         data = apple.request("GET", "/v1/apps", params={"limit": 200}, cfg=apple_cfg)
@@ -270,20 +269,31 @@ def apple_create_app_form(bundle_id: str, suggested_name: str) -> dict[str, Any]
 
 @_register_tool
 def apple_upload_build(ipa_path: str, platform: str = "ios") -> dict[str, Any]:
-    """Upload an .ipa to App Store Connect via xcrun altool.
+    """Upload an .ipa to App Store Connect through the buildUploads API (no altool).
 
-    Build processing takes a few minutes after the upload — track it with
-    apple_list_builds. platform: ios, osx or appletvos.
+    Version, build number and bundle id come from the .ipa's own Info.plist; the app
+    is found by bundle id. Blocks until Apple accepts the upload (COMPLETE) or rejects
+    it (FAILED, with Apple's errors in `errors`). Processing takes a few more minutes
+    after that — wait for it with apple_wait_build. platform: ios, osx or appletvos.
+    Works on any OS: no Xcode needed.
     """
     path = Path(ipa_path).expanduser()
     if not path.exists():
         raise FileNotFoundError(f"File not found: {path}")
-    output = apple.upload_binary(path, platform, load_apple())
-    return {
-        "uploaded": str(path),
-        "output": output[-2000:],
-        "next_step": "Wait for processing and check with apple_list_builds.",
-    }
+    result = apple.upload_binary(path, platform, load_apple())
+    result["uploaded"] = str(path)
+    if result["state"] == "COMPLETE":
+        result["next_step"] = (
+            f"Wait for processing with apple_wait_build(app_id={result['app_id']}, "
+            f"build_number={result['build_number']})."
+        )
+    elif result["state"] == "FAILED":
+        result["warning"] = "Apple rejected the upload; see errors."
+    else:
+        result["warning"] = (
+            f"Upload sent, but still {result['state']}. Check with apple_wait_build."
+        )
+    return result
 
 
 @_register_tool
@@ -2219,14 +2229,14 @@ def eas_submit(
 
     External action: this really publishes. Confirm the profile and platform with the user.
 
-    iOS: downloads the .ipa from EAS and uploads it via altool with this server's key
+    iOS: downloads the .ipa from EAS and uploads it through the buildUploads API with this server's key
     (eas submit does not accept an API key without a prompt). Android: eas submit with
     the submit profile in eas.json. Without build_id, uses the most recent finished build.
     """
     if platform == "ios":
         # eas submit refuses an App Store Connect key in --non-interactive mode
         # ("API Keys cannot be set up in --non-interactive mode"). Download the .ipa
-        # from EAS and upload it via altool with this server's account key.
+        # from EAS and upload it through the buildUploads API with this server's account key.
         if build_id:
             build = eas.summarize(eas.run(["build:view", build_id, "--json"], project_path))
         else:
@@ -2242,13 +2252,13 @@ def eas_submit(
         ipa = eas.download_artifact(
             build["artifact_url"], Path(tempfile.mkdtemp(prefix="sp-ipa-")) / f"{build['build_id']}.ipa"
         )
-        output = apple.upload_binary(ipa, "ios", load_apple())
+        upload = apple.upload_binary(ipa, "ios", load_apple())
         return {
             "platform": platform,
             "build_id": build["build_id"],
             "build_number": build["build_number"],
-            "output": output[-1500:],
-            "next_step": "Wait for processing (apple_list_builds) and attach it with apple_attach_build.",
+            "upload": upload,
+            "next_step": "Wait for processing (apple_wait_build) and attach it with apple_attach_build.",
         }
     args = ["submit", "--platform", platform, "--profile", profile]
     if build_id:

@@ -47,6 +47,7 @@ class ASCTestCase(unittest.TestCase):
     """Gives each test a fresh FakeASC in `self.asc`, wired into apple.request."""
 
     def setUp(self) -> None:
+        super().setUp()
         self.asc = FakeASC()
         cfg = AppleConfig(key_id="TESTKEY", issuer_id="issuer", private_key_path=Path("/nonexistent.p8"), team_id="TEAM")
         for p in (

@@ -59,7 +59,7 @@ If you only need what the public APIs offer, any of them will do. If you keep ge
 
 ## Quick start
 
-Requirements: Python 3.12+, [uv](https://docs.astral.sh/uv/), an App Store Connect API key and/or a Google Play service account. Xcode command line tools for iOS uploads (`xcrun altool`).
+Requirements: Python 3.12+, [uv](https://docs.astral.sh/uv/), an App Store Connect API key and/or a Google Play service account. iOS uploads go through the App Store Connect API, so no Xcode is needed to publish (only to build).
 
 Add it to Claude Code (no clone needed, `uvx` fetches it from [PyPI](https://pypi.org/project/shipstores/) and runs it):
 
@@ -158,11 +158,11 @@ The part people bookmark. Each one cost a rejected build or a lost afternoon.
 - **Availability needs every territory in the payload**, each flagged available or not — and the public API returns 409 anyway; the console endpoint works.
 - **Cancelling a submission also cancels its subscriptions, and that can't be undone by API.** Re-adding them requires the console (details in [`docs/apple-subscriptions.md`](docs/apple-subscriptions.md)).
 - **An app with an auto-renewable subscription is auto-rejected (3.1.2) without a working Terms of Use link** in the listing. The standard Apple EULA link fixes it without a new build.
-- **`xcrun altool` won't take a key path argument**, but it honors `API_PRIVATE_KEYS_DIR`.
+- **Upload builds through the `buildUploads` API, not `xcrun altool`.** altool breaks on every command in Xcode 27 ("Defaults.properties couldn't be opened") and the Transporter CLI now needs the Transporter app. The API takes the same key as every other call; version and build come from the `.ipa`'s own `Info.plist`, so they can't disagree with the binary (ITMS-90345).
 - **Screenshots belong to a version on iOS** (a released version won't accept new ones — create the next version) but to the listing on Play (live immediately).
 
 **Expo / EAS**
-- `eas submit --non-interactive` refuses App Store Connect API keys; this server downloads the `.ipa` and uploads with `altool` instead.
+- `eas submit --non-interactive` refuses App Store Connect API keys; this server downloads the `.ipa` and uploads it through the `buildUploads` API instead.
 - `eas build:view` rejects `--non-interactive` ("Nonexistent flag") — a classic source of silent failures in wrappers.
 - APNs keys are per team. After moving an app to another Apple team, a push key from the old team silently stops delivering (`InvalidProviderToken`).
 
