@@ -110,6 +110,19 @@ class ReplyOutcomeTests(unittest.TestCase):
             self._reply(side_effect=error)
         self.assertNotIsInstance(ctx.exception, server.apple_review.ReplyNotSent)
 
+    def test_cdp_script_error_before_click_is_not_sent(self) -> None:
+        error = server.browser.ScriptFailed(
+            "Console script failed on the dedicated Chrome:\nstep\nERROR: the reply box did not open"
+        )
+        with self.assertRaisesRegex(server.apple_review.ReplyNotSent, "^ERROR: the reply box"):
+            self._reply(side_effect=error)
+
+    def test_cdp_script_error_after_click_may_be_sent(self) -> None:
+        error = server.browser.ScriptFailed("Console script failed on the dedicated Chrome:\n__SP__clicked\nERROR: x")
+        with self.assertRaises(server.browser.BrowserError) as ctx:
+            self._reply(side_effect=error)
+        self.assertNotIsInstance(ctx.exception, server.apple_review.ReplyNotSent)
+
     def test_timeout_after_click_may_be_sent(self) -> None:
         timeout = subprocess.TimeoutExpired("browser-harness", 600, output="__SP__clicked\n")
         with self.assertRaises(server.browser.BrowserError) as ctx:

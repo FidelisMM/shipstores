@@ -1282,6 +1282,7 @@ dependencies = [
     { name = "httpx" },
     { name = "pyjwt", extra = ["crypto"] },
     { name = "requests" },
+    { name = "websockets" },
 ]
 
 [package.metadata]
@@ -1291,6 +1292,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.13.0" },
     { name = "requests", specifier = ">=2.34.2" },
+    { name = "websockets", specifier = ">=14.0" },
 ]
 
 [[package]]

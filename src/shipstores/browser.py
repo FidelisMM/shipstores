@@ -12,8 +12,10 @@ it fights over tabs with whoever is working in it.
 
 In headless mode there is no "background tab": the renderer always considers the
 page visible, so clicks go through without stealing focus. That is why, when the
-dedicated profile exists, this module starts its own headless Chrome and points
-browser-harness at it via BU_CDP_URL.
+dedicated profile exists, this module starts its own headless Chrome and runs the
+console scripts on it directly over CDP (cdp_direct.py, the same helpers
+browser-harness offers). browser-harness is only needed without the profile, or as
+the fallback when the profile lost its session.
 
 The profile must be logged in to both consoles. To create or renew the login:
 
@@ -61,6 +63,10 @@ CHROME_CANDIDATES = (
 
 class BrowserError(RuntimeError):
     pass
+
+
+class ScriptFailed(BrowserError):
+    """The console script itself ran and failed; the message carries its output."""
 
 
 def _chrome_binary() -> str | None:
@@ -240,20 +246,23 @@ def ensure_session(console: str, auto: bool = True) -> bool:
 
 
 def run_harness(script: str, timeout: int = 180, auto_login: bool = True) -> str:
-    """Run a Python script inside browser-harness and return its stdout.
+    """Run a browser-harness style Python script and return its stdout.
 
-    `auto_login=False` avoids recursion when the caller is the session check itself
-    (session_status uses run_harness to find out where the page ended up).
+    With the dedicated profile, the script runs on its Chrome directly over CDP;
+    without it, in browser-harness (the user's browser). `auto_login=False` avoids
+    recursion when the caller is the session check itself (session_status uses
+    run_harness to find out where the page ended up).
     """
-    binary = shutil.which("browser-harness")
-    if not binary:
-        raise BrowserError(
-            "browser-harness not found on PATH. "
-            "Install it or create the app manually in the console."
-        )
     cdp = ensure_headless()
-    output = _harness(binary, script, timeout, cdp)
-    if not (auto_login and cdp) or _logged_out_console(output) is None:
+    if not cdp:
+        return _harness(_harness_binary(), script, timeout)
+    from . import cdp_direct
+
+    try:
+        output = cdp_direct.run(script, cdp)
+    except cdp_direct.CdpError as exc:
+        raise ScriptFailed(f"Console script failed on the dedicated Chrome:\n{exc}") from exc
+    if not auto_login or _logged_out_console(output) is None:
         return output
     # The dedicated profile lost its session, but the browser browser-harness drives by
     # default (the user's) is usually logged in. Try there before asking for a 2FA login.
@@ -264,18 +273,27 @@ def run_harness(script: str, timeout: int = 180, auto_login: bool = True) -> str
     return output
 
 
-def _harness(binary: str, script: str, timeout: int, cdp: str | None) -> str:
+def _harness_binary() -> str:
+    binary = shutil.which("browser-harness")
+    if not binary:
+        raise BrowserError(
+            "browser-harness not found on PATH. "
+            "Install it, create the dedicated profile (python -m shipstores.browser login) "
+            "or do this step manually in the console."
+        )
+    return binary
+
+
+def _harness(binary: str, script: str, timeout: int) -> str:
+    # Never point browser-harness at the dedicated Chrome: that one is driven over CDP.
     env = dict(os.environ)
-    if cdp:
-        env["BU_CDP_URL"] = cdp
-    else:
-        env.pop("BU_CDP_URL", None)
+    env.pop("BU_CDP_URL", None)
     result = subprocess.run(
         [binary], input=script, capture_output=True, text=True, timeout=timeout, env=env
     )
     output = f"{result.stdout}\n{result.stderr}".strip()
     if result.returncode != 0:
-        raise BrowserError(f"browser-harness failed (exit {result.returncode}):\n{output}")
+        raise ScriptFailed(f"browser-harness failed (exit {result.returncode}):\n{output}")
     return output
 
 
@@ -285,7 +303,7 @@ def _via_user_browser(script: str, timeout: int) -> str | None:
     if not binary:
         return None
     try:
-        output = _harness(binary, script, timeout, None)
+        output = _harness(binary, script, timeout)
     except (BrowserError, subprocess.TimeoutExpired):
         return None
     return output if _logged_out_console(output) is None else None

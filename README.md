@@ -89,7 +89,7 @@ For example, `SHIPSTORES_TOOLSETS=apple,eas` exposes only Apple and EAS tools, p
 
 ### Console features (optional)
 
-Privacy labels, availability, App Review replies and Play "App content" forms run through the store consoles' own web endpoints in a dedicated, logged-in browser profile, driven by [browser-harness](https://github.com/browser-use/browser-harness). Log in once:
+Privacy labels, availability, App Review replies and Play "App content" forms run through the store consoles' own web endpoints in a dedicated, logged-in Chrome profile, which shipstores drives directly over the Chrome DevTools Protocol (headless, so it never takes over your screen). [browser-harness](https://github.com/browser-use/browser-harness) is only needed without that profile, or as the fallback when the profile's session expired. Log in once:
 
 ```bash
 uvx --from shipstores python -m shipstores.browser login   # opens a window; sign in to both consoles (2FA included)

@@ -13,6 +13,7 @@
 - When the dedicated profile is logged out, console automations retry in the browser that browser-harness drives by default before asking for a 2FA login.
 - `apple_cancel_submission` also cancels a rejected submission (`UNRESOLVED_ISSUES`) and waits for `CANCELING` to finish, which unlocks subscription images and metadata for editing.
 - `apple_reply_review` is now two-step: the default call validates and returns a preview without sending; it sends only with the `confirm_token` from that preview, a hash of the exact text, attachments and submission, so nothing can change between preview and send, and a token sends only once (#12). Suggested by u/QuanTradin on r/mcp.
+- Console automation runs directly on the dedicated Chrome over CDP (`cdp_direct.py`, same helpers as browser-harness), so browser-harness is no longer required when the dedicated profile exists. The tab a call leaves open survives to the next call (`play_content_open` → `play_content_answer` → `play_content_save`), a navigation that hangs is retried once on a fresh tab, and a script's `SystemExit` becomes a handled error instead of taking the server down. `websockets` is now a direct dependency.
 - Tools marked "External action" now carry MCP tool annotations (`destructiveHint`, `openWorldHint`) so clients can gate them.
 
 ## 0.2.0
