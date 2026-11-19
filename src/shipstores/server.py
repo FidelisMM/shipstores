@@ -40,7 +40,10 @@ mcp = FastMCP(
         "apple_create_subscription, apple_list_price_points, "
         "apple_set_subscription_price, apple_set_subscription_availability and "
         "apple_create_intro_offer. A product only becomes READY_TO_SUBMIT after it "
-        "has both a price AND availability; check with apple_list_subscriptions.\n\n"
+        "has both a price AND availability; check with apple_list_subscriptions. "
+        "apple_submit_for_review takes every READY_TO_SUBMIT subscription and its group "
+        "in the same submission as the version (an app's first subscription only passes "
+        "that way).\n\n"
         "Outside Apple's API, browser only: the App Store Server Notifications URL "
         "and the Paid Apps agreements.\n\n"
         "Store listing screenshots are API-driven on both stores: "
@@ -478,47 +481,70 @@ def apple_attach_build(version_id: str, build_id: str) -> dict[str, Any]:
 
 
 @_register_tool
-def apple_submit_for_review(version_id: str) -> dict[str, Any]:
+def apple_submit_for_review(version_id: str, include_subscriptions: bool = True) -> dict[str, Any]:
     """Submit a version for Apple review. External action, hard to reverse.
 
     Confirm with the user before calling. Requires the version to already have a
     build attached and complete metadata.
+
+    With include_subscriptions (default), every subscription in READY_TO_SUBMIT and
+    its group go in the same submission. An app's first subscription only passes this
+    way: in-app purchases always travel with a version, and without the group the
+    submission gets stuck. Same as "Add for Review" on the version, on each plan and on
+    the group in the console, picking the same draft. Reuses the app's open draft
+    submission, if there is one. Before submitting it counts the draft's items and
+    stops, without submitting, if any is missing.
     """
     # The 'app' relationship does not accept a direct GET (403 FORBIDDEN_ERROR); the
     # app_id comes from the include on the version itself.
     version = apple.request("GET", f"/v1/appStoreVersions/{version_id}", params={"include": "app"})
     app_id = version["data"]["relationships"]["app"]["data"]["id"]
 
-    submission = apple.request(
-        "POST",
-        "/v1/reviewSubmissions",
-        json={
-            "data": {
-                "type": "reviewSubmissions",
-                "attributes": {"platform": "IOS"},
-                "relationships": {"app": {"data": {"type": "apps", "id": app_id}}},
-            }
-        },
-    )
-    submission_id = submission["data"]["id"]
-    apple.request(
-        "POST",
-        "/v1/reviewSubmissionItems",
-        json={
-            "data": {
-                "type": "reviewSubmissionItems",
-                "relationships": {
-                    "reviewSubmission": {
-                        "data": {"type": "reviewSubmissions", "id": submission_id}
+    submission_id = _draft_submission(app_id)
+    # Without the include, Apple returns the items without the relationship, the version
+    # looks absent from the draft and the next POST gets 409 "already added".
+    items = apple.request(
+        "GET", f"/v1/reviewSubmissions/{submission_id}/items", params={"include": "appStoreVersion"}
+    )["data"]
+    versions_in_draft = {
+        (((i.get("relationships") or {}).get("appStoreVersion") or {}).get("data") or {}).get("id")
+        for i in items
+    }
+    if version_id not in versions_in_draft:
+        apple.request(
+            "POST",
+            "/v1/reviewSubmissionItems",
+            json={
+                "data": {
+                    "type": "reviewSubmissionItems",
+                    "relationships": {
+                        "reviewSubmission": {
+                            "data": {"type": "reviewSubmissions", "id": submission_id}
+                        },
+                        "appStoreVersion": {
+                            "data": {"type": "appStoreVersions", "id": version_id}
+                        },
                     },
-                    "appStoreVersion": {
-                        "data": {"type": "appStoreVersions", "id": version_id}
-                    },
-                },
-            }
-        },
-    )
-    apple.request(
+                }
+            },
+        )
+
+    # The version must be in the draft first: it is what unlocks the first subscription.
+    extras = (_submit_subscriptions(app_id, submission_id) if include_subscriptions
+              else {"subscriptions": [], "groups": [], "warnings": []})
+
+    expected = 1 + len(extras["subscriptions"]) + len(extras["groups"])
+    items = apple.request("GET", f"/v1/reviewSubmissions/{submission_id}/items")["data"]
+    if include_subscriptions and len(items) < expected:
+        # Submitting like this would send the version without its plans, and Apple
+        # rejects that under 2.1.
+        raise apple.AppleError(
+            f"Draft {submission_id} has {len(items)} items, expected {expected} "
+            f"(version + {len(extras['subscriptions'])} subscriptions + {len(extras['groups'])} groups). "
+            "Nothing was submitted. Check App Store Connect > Distribution > Draft Submissions."
+        )
+
+    result = apple.request(
         "PATCH",
         f"/v1/reviewSubmissions/{submission_id}",
         json={
@@ -529,7 +555,96 @@ def apple_submit_for_review(version_id: str) -> dict[str, Any]:
             }
         },
     )
-    return {"review_submission_id": submission_id, "version_id": version_id, "submitted": True}
+    out = {
+        "review_submission_id": submission_id,
+        "version_id": version_id,
+        "submitted": True,
+        "state": result.get("data", {}).get("attributes", {}).get("state"),
+        "items": len(items),
+        "subscriptions": extras["subscriptions"],
+        "groups": extras["groups"],
+    }
+    if extras["warnings"]:
+        out["warnings"] = extras["warnings"]
+    return out
+
+
+def _draft_submission(app_id: str) -> str:
+    """The app's open iOS draft submission (READY_FOR_REVIEW, not submitted yet), or a new one."""
+    subs = apple.request("GET", f"/v1/apps/{app_id}/reviewSubmissions", params={"limit": 10})
+    for sub in subs.get("data", []):
+        attrs = sub["attributes"]
+        if attrs.get("state") == "READY_FOR_REVIEW" and attrs.get("platform", "IOS") == "IOS":
+            return sub["id"]
+    created = apple.request(
+        "POST",
+        "/v1/reviewSubmissions",
+        json={
+            "data": {
+                "type": "reviewSubmissions",
+                "attributes": {"platform": "IOS"},
+                "relationships": {"app": {"data": {"type": "apps", "id": app_id}}},
+            }
+        },
+    )
+    return created["data"]["id"]
+
+
+def _no_pending_version(exc: apple.AppleError) -> bool:
+    return "no pending version" in str(exc)
+
+
+def _submit_subscriptions(app_id: str, submission_id: str) -> dict[str, list[str]]:
+    """Put each READY_TO_SUBMIT subscription and its group in the open draft.
+
+    A subscription failure stops everything (without it the submission goes out
+    incomplete). A group failure becomes a warning: a group that already went through
+    review may refuse a new item. After a canceled submission, the API refuses with
+    "no pending version" what the console accepts; in that case the item goes in
+    through the console's "Add for Review" button.
+    """
+    subscriptions: list[str] = []
+    groups: list[str] = []
+    warnings: list[str] = []
+    for group in apple.request("GET", f"/v1/apps/{app_id}/subscriptionGroups").get("data", []):
+        subs = apple.request("GET", f"/v1/subscriptionGroups/{group['id']}/subscriptions").get("data", [])
+        ready = [s for s in subs if s["attributes"].get("state") == "READY_TO_SUBMIT"]
+        for sub in ready:
+            try:
+                apple.request(
+                    "POST",
+                    "/v1/subscriptionSubmissions",
+                    json={"data": {"type": "subscriptionSubmissions", "relationships": {
+                        "subscription": {"data": {"type": "subscriptions", "id": sub["id"]}}}}},
+                )
+            except apple.AppleError as exc:
+                if not _no_pending_version(exc):
+                    raise
+                apple_console.add_to_review_draft(app_id, "subscriptions", sub["id"])
+                warnings.append(f"subscription {sub['id']} went in through the console (API: no pending version)")
+            subscriptions.append(sub["id"])
+        if not ready:
+            continue
+        try:
+            apple.request(
+                "POST",
+                "/v1/subscriptionGroupSubmissions",
+                json={"data": {"type": "subscriptionGroupSubmissions", "relationships": {
+                    "subscriptionGroup": {"data": {"type": "subscriptionGroups", "id": group["id"]}}}}},
+            )
+            groups.append(group["id"])
+        except apple.AppleError as exc:
+            failure: Exception = exc
+            if _no_pending_version(exc):
+                try:
+                    apple_console.add_to_review_draft(app_id, "subscription-groups", group["id"])
+                    groups.append(group["id"])
+                    warnings.append(f"group {group['id']} went in through the console (API: no pending version)")
+                    continue
+                except browser.BrowserError as console_exc:
+                    failure = console_exc
+            warnings.append(f"group {group['id']} did not join the submission: {str(failure)[:300]}")
+    return {"subscriptions": subscriptions, "groups": groups, "warnings": warnings}
 
 
 def _active_submission(app_id: str, states: tuple[str, ...]) -> str:
