@@ -1163,6 +1163,34 @@ def apple_set_review_details(
 
 
 @_register_tool
+def apple_attach_review_file(version_id: str, file_path: str) -> dict[str, Any]:
+    """Attach a file (the iPhone video, a PDF) to the version's App Review information. External action.
+
+    The preferred path for "2.1 Information Needed": it is pure API and does not
+    depend on the App Store Connect web session, which expires often and needs a 2FA
+    login. Sequence: answers in the notes with apple_set_review_details, the video
+    here, then apple_resubmit_for_review. Use apple_reply_review (Resolution Center,
+    through the browser) only if Apple insists on an answer there. HEVC video is
+    converted to H.264 at 1920px before uploading.
+    """
+    path = Path(file_path).expanduser()
+    if not path.exists():
+        raise FileNotFoundError(f"Attachment not found: {path}")
+    detail = apple.request(
+        "GET", f"/v1/appStoreVersions/{version_id}/appStoreReviewDetail"
+    ).get("data")
+    if not detail:
+        raise ValueError("The version has no App Review information yet: run apple_set_review_details first.")
+    upload = apple_review.prepare_attachment(path)
+    attachment_id = apple.upload_asset(
+        "appStoreReviewAttachments",
+        upload,
+        {"appStoreReviewDetail": {"data": {"type": "appStoreReviewDetails", "id": detail["id"]}}},
+    )
+    return {"attachment_id": attachment_id, "file": upload.name, "review_detail_id": detail["id"]}
+
+
+@_register_tool
 def apple_set_version_string(version_id: str, version_string: str) -> dict[str, Any]:
     """Rename an editable version. External action.
 

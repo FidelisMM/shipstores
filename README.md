@@ -105,7 +105,7 @@ uvx --from shipstores python -m shipstores.browser login   # opens a window; sig
 
 **Apple: listing & app setup** — `apple_update_listing`, `apple_upload_screenshots`, `apple_set_app_info` (subtitle, URLs, categories, copyright, content rights), `apple_set_app_name` (the store name, in every language or one, with alternatives if it is taken), `apple_set_age_rating`, `apple_set_free_price`, `apple_set_availability`, `apple_set_app_privacy`, `apple_review_details`, `apple_set_review_details`
 
-**Apple: App Review** — `apple_review_messages` (read the rejection and its guideline), `apple_reply_review` (answer with text + attachments; iPhone HEVC videos are converted to H.264; returns a preview and a `confirm_token` first; only sends when called again with that token)
+**Apple: App Review** — `apple_review_messages` (read the rejection and its guideline), `apple_attach_review_file` (attach the walkthrough video or a PDF to the review notes, API only), `apple_reply_review` (answer with text + attachments; iPhone HEVC videos are converted to H.264; returns a preview and a `confirm_token` first; only sends when called again with that token)
 
 **Apple: subscriptions** — `apple_create_subscription_group`, `apple_create_subscription`, `apple_list_price_points`, `apple_set_subscription_price`, `apple_set_subscription_availability`, `apple_create_intro_offer`, `apple_list_subscriptions`, `apple_upload_subscription_screenshot`
 
@@ -143,7 +143,11 @@ play_create_app_form → [fill in the browser] → play_upload_bundle (track=int
 **Rejected with "Guideline 2.1 – Information Needed"** (standard for new developer accounts)
 ```
 apple_review_messages → record the iPhone walkthrough → apple_set_review_details (answers in Notes)
-→ apple_reply_review (answers + video) → apple_resubmit_for_review
+→ apple_attach_review_file (video) → apple_resubmit_for_review
+```
+Everything after reading the rejection is API only, so it does not depend on the console session. If Apple insists on an answer in the Resolution Center:
+```
+… → apple_reply_review (answers + video) → apple_resubmit_for_review
 ```
 
 ## Hard-won lessons
