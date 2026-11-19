@@ -12,8 +12,10 @@ it fights over tabs with whoever is working in it.
 
 In headless mode there is no "background tab": the renderer always considers the
 page visible, so clicks go through without stealing focus. That is why, when the
-dedicated profile exists, this module starts its own headless Chrome and points
-browser-harness at it via BU_CDP_URL.
+dedicated profile exists, this module starts its own headless Chrome and runs the
+console scripts on it directly over CDP (cdp_direct.py, the same helpers
+browser-harness offers). browser-harness is only needed without the profile, or as
+the fallback when the profile lost its session.
 
 The profile must be logged in to both consoles. To create or renew the login:
 
@@ -27,6 +29,7 @@ Without the profile, everything keeps working as before, in the user's Chrome.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -63,6 +66,10 @@ class BrowserError(RuntimeError):
     pass
 
 
+class ScriptFailed(BrowserError):
+    """The console script itself ran and failed; the message carries its output."""
+
+
 def _chrome_binary() -> str | None:
     for c in CHROME_CANDIDATES:
         if os.path.isabs(c):
@@ -79,6 +86,117 @@ def _cdp_alive() -> bool:
         return True
     except Exception:  # noqa: BLE001 — any failure means "not up"
         return False
+
+
+def _running_headless() -> bool:
+    ps = subprocess.run(["ps", "-axo", "command="], capture_output=True, text=True).stdout
+    return any(
+        f"--user-data-dir={PROFILE_DIR}" in line and "--headless" in line and "--type=" not in line
+        for line in ps.splitlines()
+    )
+
+
+def _login_in_progress() -> bool:
+    """Is any tab of the dedicated Chrome on a login screen (someone authenticating)?"""
+    try:
+        tabs = httpx.get(f"{CDP_URL}/json/list", timeout=3).json()
+    except Exception:  # noqa: BLE001
+        return False
+    return any(
+        t.get("type") == "page"
+        and any(re.search(rf"://{re.escape(h)}[/?]", t.get("url", "")) for h in _LOGIN_HOSTS)
+        for t in tabs
+    )
+
+
+def return_to_headless() -> bool:
+    """Close the login window cleanly; the next call starts Chrome headless again.
+
+    Uses Browser.close over CDP, not pkill, so Chrome flushes the profile before
+    exiting. Returns True if there was a window and it was closed.
+    """
+    if not _cdp_alive() or _running_headless():
+        return False
+    # Apple's console login is a session cookie: without saving it first, Browser.close
+    # drops it and the next call asks for a login again.
+    save_cookies()
+    _close_chrome()
+    for _ in range(20):
+        time.sleep(0.5)
+        if not _cdp_alive():
+            return True
+    raise BrowserError("The dedicated Chrome did not close within 10s of Browser.close.")
+
+
+def _close_chrome() -> None:
+    _browser_cdp("Browser.close", wait_for_reply=False)
+
+
+# ------------------------------------------------------------------ saved cookies
+#
+# Chrome drops session cookies when it closes, and that is where Apple keeps the
+# console login. Since this module closes and reopens Chrome (a window to log in,
+# headless for everything else), the login used to last only until the next call.
+# The consoles' cookies are now kept in a file inside the profile (readable only by
+# the owner) and handed back to Chrome every time it starts.
+
+COOKIES_FILE = PROFILE_DIR / "console-session.json"
+_CONSOLE_DOMAINS = ("apple.com", "google.com")
+
+
+def _browser_cdp(method: str, params: dict | None = None, wait_for_reply: bool = True) -> dict:
+    """CDP call on the browser target (Storage.*, Browser.close)."""
+    from websockets.sync.client import connect
+
+    ws_url = httpx.get(f"{CDP_URL}/json/version", timeout=5).json()["webSocketDebuggerUrl"]
+    with connect(ws_url, open_timeout=10, max_size=None) as ws:
+        ws.send(json.dumps({"id": 1, "method": method, "params": params or {}}))
+        if not wait_for_reply:
+            return {}
+        while True:
+            msg = json.loads(ws.recv(timeout=15))
+            if msg.get("id") == 1:
+                if "error" in msg:
+                    raise BrowserError(f"CDP {method}: {msg['error']}")
+                return msg.get("result", {})
+
+
+def _console_cookies(cookies: list[dict]) -> list[dict]:
+    return [c for c in cookies if any(c.get("domain", "").endswith(d) for d in _CONSOLE_DOMAINS)]
+
+
+def _cookie_param(c: dict) -> dict:
+    """A cookie read with Storage.getCookies, in Storage.setCookies form; session cookies stay session cookies."""
+    p = {k: c[k] for k in ("name", "value", "domain", "path", "httpOnly", "secure", "sameSite") if k in c}
+    if not c.get("session") and c.get("expires", -1) > 0:
+        p["expires"] = c["expires"]
+    return p
+
+
+def save_cookies() -> None:
+    """Copy the consoles' cookies from the dedicated Chrome to the profile. Failures are ignored."""
+    try:
+        cookies = _console_cookies(_browser_cdp("Storage.getCookies").get("cookies", []))
+        if not cookies:
+            return
+        tmp = COOKIES_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(cookies))
+        tmp.chmod(0o600)
+        tmp.replace(COOKIES_FILE)
+    except Exception:  # noqa: BLE001 — without a copy we are back to the old behavior
+        pass
+
+
+def restore_cookies() -> None:
+    """Hand the saved cookies back to a freshly started Chrome (it discards expired ones)."""
+    try:
+        if not COOKIES_FILE.is_file():
+            return
+        cookies = [_cookie_param(c) for c in json.loads(COOKIES_FILE.read_text())]
+        if cookies:
+            _browser_cdp("Storage.setCookies", {"cookies": cookies})
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _spawn(headless: bool, urls: tuple[str, ...] = ()) -> None:
@@ -115,11 +233,17 @@ def ensure_headless(visivel: bool = False) -> str | None:
     if not PROFILE_DIR.exists():
         return None
     if _cdp_alive():
-        return CDP_URL
+        if visivel or _running_headless() or _login_in_progress():
+            return CDP_URL
+        # Still has the window of a login that already finished: that window steals
+        # focus from whoever is working on the machine. Close it cleanly (cookies saved)
+        # and start headless.
+        return_to_headless()
     _spawn(headless=True)
     for _ in range(20):
         time.sleep(1)
         if _cdp_alive():
+            restore_cookies()
             return CDP_URL
     raise BrowserError(
         f"The Chrome for profile {PROFILE_DIR} did not answer on CDP within 20s. "
@@ -200,7 +324,10 @@ def _logged_in(console: str, output: str) -> bool:
 def session_status(console: str | None = None) -> dict[str, bool]:
     """Report, for each console, whether the dedicated profile is still logged in."""
     alvos = [console] if console else list(CONSOLES)
-    return {nome: _logged_in(nome, run_harness(_session_script(nome), auto_login=False)) for nome in alvos}
+    status = {nome: _logged_in(nome, run_harness(_session_script(nome), auto_login=False)) for nome in alvos}
+    if any(status.values()):
+        save_cookies()
+    return status
 
 
 def session_status_user_browser(console: str) -> bool:
@@ -213,6 +340,18 @@ def relogin(consoles: list[str] | None = None) -> str:
     """Close the headless Chrome and reopen it WITH a window on the consoles that need a login."""
     alvos = consoles or list(CONSOLES)
     urls = tuple(CONSOLES[c]["url"] for c in alvos if c in CONSOLES)
+    if _cdp_alive() and not _running_headless():
+        # There is a window already: just open the login tabs in it. Killing and
+        # reopening drops the session cookies of whoever just logged in.
+        for url in urls:
+            httpx.put(f"{CDP_URL}/json/new?{url}", timeout=5)
+        return (
+            f"Login tabs opened in the dedicated Chrome on: {', '.join(alvos)}. "
+            "Log in (including 2FA; on Apple, choose to trust this browser) and report back. "
+            "Then store_browser_session() checks the sessions and closes the window (back to headless)."
+        )
+    if _cdp_alive():
+        save_cookies()
     subprocess.run(
         ["pkill", "-f", str(PROFILE_DIR)], capture_output=True, check=False
     )
@@ -240,20 +379,26 @@ def ensure_session(console: str, auto: bool = True) -> bool:
 
 
 def run_harness(script: str, timeout: int = 180, auto_login: bool = True) -> str:
-    """Run a Python script inside browser-harness and return its stdout.
+    """Run a browser-harness style Python script and return its stdout.
 
-    `auto_login=False` avoids recursion when the caller is the session check itself
-    (session_status uses run_harness to find out where the page ended up).
+    With the dedicated profile, the script runs on its Chrome directly over CDP;
+    without it, in browser-harness (the user's browser). `auto_login=False` avoids
+    recursion when the caller is the session check itself (session_status uses
+    run_harness to find out where the page ended up).
     """
-    binary = shutil.which("browser-harness")
-    if not binary:
-        raise BrowserError(
-            "browser-harness not found on PATH. "
-            "Install it or create the app manually in the console."
-        )
     cdp = ensure_headless()
-    output = _harness(binary, script, timeout, cdp)
-    if not (auto_login and cdp) or _logged_out_console(output) is None:
+    if not cdp:
+        return _harness(_harness_binary(), script, timeout)
+    from . import cdp_direct
+
+    try:
+        output = cdp_direct.run(script, cdp)
+    except cdp_direct.CdpError as exc:
+        raise ScriptFailed(f"Console script failed on the dedicated Chrome:\n{exc}") from exc
+    if not auto_login:
+        return output
+    if _logged_out_console(output) is None:
+        save_cookies()  # good session: keep the copy fresh for the next Chrome
         return output
     # The dedicated profile lost its session, but the browser browser-harness drives by
     # default (the user's) is usually logged in. Try there before asking for a 2FA login.
@@ -264,18 +409,27 @@ def run_harness(script: str, timeout: int = 180, auto_login: bool = True) -> str
     return output
 
 
-def _harness(binary: str, script: str, timeout: int, cdp: str | None) -> str:
+def _harness_binary() -> str:
+    binary = shutil.which("browser-harness")
+    if not binary:
+        raise BrowserError(
+            "browser-harness not found on PATH. "
+            "Install it, create the dedicated profile (python -m shipstores.browser login) "
+            "or do this step manually in the console."
+        )
+    return binary
+
+
+def _harness(binary: str, script: str, timeout: int) -> str:
+    # Never point browser-harness at the dedicated Chrome: that one is driven over CDP.
     env = dict(os.environ)
-    if cdp:
-        env["BU_CDP_URL"] = cdp
-    else:
-        env.pop("BU_CDP_URL", None)
+    env.pop("BU_CDP_URL", None)
     result = subprocess.run(
         [binary], input=script, capture_output=True, text=True, timeout=timeout, env=env
     )
     output = f"{result.stdout}\n{result.stderr}".strip()
     if result.returncode != 0:
-        raise BrowserError(f"browser-harness failed (exit {result.returncode}):\n{output}")
+        raise ScriptFailed(f"browser-harness failed (exit {result.returncode}):\n{output}")
     return output
 
 
@@ -285,7 +439,7 @@ def _via_user_browser(script: str, timeout: int) -> str | None:
     if not binary:
         return None
     try:
-        output = _harness(binary, script, timeout, None)
+        output = _harness(binary, script, timeout)
     except (BrowserError, subprocess.TimeoutExpired):
         return None
     return output if _logged_out_console(output) is None else None
@@ -310,8 +464,11 @@ LOGGED_OUT_MARK = "__LOGGED_OUT__"
 
 def _logged_out_console(output: str) -> str | None:
     """Console whose login screen shows up in the script output, or None."""
+    # Only a page URL on a line of its own counts (what scripts print with
+    # page_info()["url"]). Looking for the host anywhere in the text fired on footer
+    # links and iframes and reopened Chrome with a window for nothing.
     for host, console in _LOGIN_HOSTS.items():
-        if host in output:
+        if re.search(rf"^\s*(URL=)?https://{re.escape(host)}[/?]", output, re.MULTILINE):
             return console
     mark = re.search(rf"{LOGGED_OUT_MARK} (\w+)", output)
     if mark and mark.group(1) in CONSOLES:
@@ -334,7 +491,10 @@ def open_page(url: str) -> str:
     return run_harness(
         f'new_tab({url!r})\n'
         "wait_for_load()\n"
-        "print(page_info())\n"
+        "info = page_info()\n"
+        # The URL on its own line is what the logged-out detection looks at.
+        "print('URL=' + str(info.get('url', '')))\n"
+        "print(info)\n"
     )
 
 

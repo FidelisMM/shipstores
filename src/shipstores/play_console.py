@@ -208,6 +208,11 @@ def set_field(finder, text):
 
 def ax_controls():
     out = []
+    try:
+        # Without this, the first read in a new session returns the controls without names.
+        cdp('Accessibility.enable')
+    except Exception:
+        pass
     for node in cdp('Accessibility.getFullAXTree')['nodes']:
         if (node.get('role') or {}).get('value') not in ('radio', 'checkbox'):
             continue
@@ -286,7 +291,14 @@ def pick(option, nth=0):
     # Select the radio/checkbox labeled `option` (nth occurrence). Material's real
     # <input> sits ~15px above the visible circle, so try several vertical offsets and
     # only report success when the accessibility tree says checked.
-    found = [c for c in ax_controls() if c['name'] == option.strip()]
+    found = []
+    for _ in range(5):
+        # Right after a call attaches to the tab, the accessibility tree can come back
+        # empty for a few seconds.
+        found = [c for c in ax_controls() if c['name'] == option.strip()]
+        if nth < len(found):
+            break
+        time.sleep(2)
     if nth >= len(found):
         names = sorted({c['name'] for c in ax_controls() if c['name']})
         return 'FAILED: ' + str(len(found)) + ' control(s) named ' + repr(option) + '; available: ' + repr(names[:30])
@@ -310,6 +322,24 @@ def pick(option, nth=0):
         state = next((c['checked'] for c in ax_controls() if c['bid'] == bid), None)
         if state in (True, 'true'):
             return 'selected: ' + repr(option) + ' (offset ' + str(dy) + 'px)'
+    # Plan B: a mouse click at the center of the component (<material-radio>), not the
+    # <input>. On short-label radios (the "No" of Government apps) no offset hits the
+    # input, and input.click() checks it on screen but the form never registers it.
+    try:
+        obj = cdp('DOM.resolveNode', backendNodeId=bid)['object']['objectId']
+        r = cdp('Runtime.callFunctionOn', objectId=obj, returnByValue=True, functionDeclaration=(
+            "function(){const h=this.closest('material-radio,mat-radio-button,material-checkbox,mat-checkbox')||this;"
+            "h.scrollIntoView({block:'center'});const b=h.getBoundingClientRect();"
+            "return [Math.round(b.x+b.width/2),Math.round(b.y+b.height/2)]}"))['result']['value']
+        cdp('Input.dispatchMouseEvent', type='mousePressed', x=r[0], y=r[1], button='left', buttons=1, clickCount=1)
+        time.sleep(HOLD)
+        cdp('Input.dispatchMouseEvent', type='mouseReleased', x=r[0], y=r[1], button='left', buttons=0, clickCount=1)
+        time.sleep(1)
+        state = next((c['checked'] for c in ax_controls() if c['bid'] == bid), None)
+        if state in (True, 'true'):
+            return 'selected: ' + repr(option) + ' (component click)'
+    except Exception:
+        pass
     return 'FAILED: clicked ' + repr(option) + ' but the accessibility tree never reported it checked'
 
 

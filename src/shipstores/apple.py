@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import hashlib
-import os
-import subprocess
+import plistlib
 import time
+import zipfile
 from typing import Callable, TypeVar
 from pathlib import Path
 from typing import Any
@@ -196,27 +196,179 @@ def set_order(resource: str, set_id: str, child: str, ids: list[str]) -> None:
         raise AppleError(f"reordering failed: HTTP {resp.status_code} {resp.text[:300]}")
 
 
-def upload_binary(ipa_path: Path, platform: str, cfg: AppleConfig) -> str:
-    """Upload an .ipa via `xcrun altool`. Returns the command's combined output.
+# Tool platform (altool names, kept for compatibility) -> buildUploads API platform.
+UPLOAD_PLATFORMS = {"ios": "IOS", "osx": "MAC_OS", "appletvos": "TV_OS"}
 
-    altool does not accept a key path as an argument, but it honors
-    API_PRIVATE_KEYS_DIR: point it straight at the .p8's folder, no copying or linking.
+UPLOAD_POLL_SECONDS = 15
+UPLOAD_POLL_TRIES = 60  # 15 min for Apple to answer COMPLETE or FAILED
+UPLOAD_CHUNK_BYTES = 1024 * 1024
+
+
+def upload_platform(platform: str) -> str:
+    try:
+        return UPLOAD_PLATFORMS[platform.lower()]
+    except KeyError:
+        raise AppleError(
+            f"Invalid platform: {platform!r}. Use {', '.join(UPLOAD_PLATFORMS)}."
+        ) from None
+
+
+def read_ipa_info(ipa_path: Path) -> dict[str, str]:
+    """Read bundle id, version and build number from the .ipa's Payload/*.app/Info.plist.
+
+    The version sent to buildUploads must match the binary's, or Apple rejects it
+    with ITMS-90345 — so it comes from the file itself.
     """
-    env = {**os.environ, "API_PRIVATE_KEYS_DIR": str(cfg.private_key_path.parent)}
-    result = subprocess.run(
-        [
-            "xcrun", "altool", "--upload-app",
-            "-f", str(ipa_path),
-            "-t", platform,
-            "--apiKey", cfg.key_id,
-            "--apiIssuer", cfg.issuer_id,
-        ],
-        capture_output=True,
-        text=True,
-        timeout=3600,
-        env=env,
+    with zipfile.ZipFile(ipa_path) as ipa:
+        names = [
+            n for n in ipa.namelist()
+            if n.startswith("Payload/") and n.endswith(".app/Info.plist") and n.count("/") == 2
+        ]
+        if not names:
+            raise AppleError(f"{ipa_path.name} has no Payload/*.app/Info.plist — it does not look like an .ipa.")
+        info = plistlib.loads(ipa.read(names[0]))
+    missing = [
+        k for k in ("CFBundleIdentifier", "CFBundleShortVersionString", "CFBundleVersion") if not info.get(k)
+    ]
+    if missing:
+        raise AppleError(f"Info.plist in {ipa_path.name} has no {', '.join(missing)}.")
+    return {
+        "bundle_id": str(info["CFBundleIdentifier"]),
+        "version": str(info["CFBundleShortVersionString"]),
+        "build_number": str(info["CFBundleVersion"]),
+    }
+
+
+def find_app_id(bundle_id: str, cfg: AppleConfig) -> str:
+    data = request("GET", "/v1/apps", params={"filter[bundleId]": bundle_id, "limit": 200}, cfg=cfg)
+    # The filter is not strictly exact; check each app's bundle id.
+    for app in data.get("data", []):
+        if app["attributes"].get("bundleId") == bundle_id:
+            return app["id"]
+    raise AppleError(
+        f"No app with bundle id {bundle_id} in this account. Create the app (apple_create_app_form) "
+        "or check that the key belongs to the right account."
     )
-    output = f"{result.stdout}\n{result.stderr}".strip()
-    if result.returncode != 0:
-        raise AppleError(f"altool failed (exit {result.returncode}):\n{output}")
-    return output
+
+
+def _md5(path: Path) -> str:
+    digest = hashlib.md5()
+    with path.open("rb") as f:
+        while chunk := f.read(UPLOAD_CHUNK_BYTES):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def upload_binary(ipa_path: Path, platform: str, cfg: AppleConfig) -> dict[str, Any]:
+    """Upload an .ipa through App Store Connect's buildUploads API and wait for the verdict.
+
+    No altool and no Transporter: altool needs macOS with Xcode (and breaks on every
+    command in Xcode 27 with "Defaults.properties couldn't be opened"), while the API
+    works anywhere with the same key as every other call. Steps: reserve the upload,
+    reserve the file, send the parts, commit with the MD5 and poll the state until
+    COMPLETE or FAILED.
+    """
+    api_platform = upload_platform(platform)
+    info = read_ipa_info(ipa_path)
+    app_id = find_app_id(info["bundle_id"], cfg)
+    size = ipa_path.stat().st_size
+
+    upload = request(
+        "POST",
+        "/v1/buildUploads",
+        json={
+            "data": {
+                "type": "buildUploads",
+                "attributes": {
+                    "cfBundleShortVersionString": info["version"],
+                    "cfBundleVersion": info["build_number"],
+                    "platform": api_platform,
+                },
+                "relationships": {"app": {"data": {"type": "apps", "id": app_id}}},
+            }
+        },
+        cfg=cfg,
+    )
+    upload_id = upload["data"]["id"]
+
+    upload_file = request(
+        "POST",
+        "/v1/buildUploadFiles",
+        json={
+            "data": {
+                "type": "buildUploadFiles",
+                "attributes": {
+                    "fileName": ipa_path.name,
+                    "fileSize": size,
+                    "uti": "com.apple.ipa",
+                    "assetType": "ASSET",
+                },
+                "relationships": {"buildUpload": {"data": {"type": "buildUploads", "id": upload_id}}},
+            }
+        },
+        cfg=cfg,
+    )
+    file_id = upload_file["data"]["id"]
+    operations = upload_file["data"]["attributes"]["uploadOperations"]
+
+    # One part in memory at a time, never the whole .ipa.
+    with ipa_path.open("rb") as f:
+        for n, operation in enumerate(operations, 1):
+
+            def send(op: dict[str, Any] = operation) -> None:
+                f.seek(op["offset"])
+                response = httpx.request(
+                    op["method"],
+                    op["url"],
+                    headers={h["name"]: h["value"] for h in op.get("requestHeaders", [])},
+                    content=f.read(op["length"]),
+                    timeout=600,
+                )
+                response.raise_for_status()
+
+            with_retry(send, f"upload {ipa_path.name} part {n}/{len(operations)}")
+
+    try:
+        request(
+            "PATCH",
+            f"/v1/buildUploadFiles/{file_id}",
+            json={
+                "data": {
+                    "type": "buildUploadFiles",
+                    "id": file_id,
+                    "attributes": {
+                        "uploaded": True,
+                        "sourceFileChecksums": {"file": {"hash": _md5(ipa_path), "algorithm": "MD5"}},
+                    },
+                }
+            },
+            cfg=cfg,
+        )
+    except AppleError as exc:
+        # This PATCH is not idempotent: a 409 after a retry means the earlier commit
+        # went through. The buildUpload state below tells whether it worked.
+        if "HTTP 409" not in str(exc):
+            raise
+
+    state: dict[str, Any] = {}
+    for n in range(UPLOAD_POLL_TRIES):
+        if n:
+            time.sleep(UPLOAD_POLL_SECONDS)
+        data = request("GET", f"/v1/buildUploads/{upload_id}", cfg=cfg)
+        state = data["data"]["attributes"].get("state") or {}
+        if state.get("state") in ("COMPLETE", "FAILED"):
+            break
+
+    result: dict[str, Any] = {
+        "upload_id": upload_id,
+        "state": state.get("state"),
+        "app_id": app_id,
+        **info,
+        "platform": api_platform,
+        "size_bytes": size,
+        "parts": len(operations),
+    }
+    for field in ("errors", "warnings"):
+        if state.get(field):
+            result[field] = state[field]
+    return result

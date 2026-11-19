@@ -130,3 +130,73 @@ def set_privacy(app_id: str, usages: list[dict]) -> dict:
  return {{removed:old.length, created:created, published:true}};
 """
     return _run_iris(app_id, body)
+
+
+# UI labels in pt-BR and en-US
+ADD_FOR_REVIEW = ("Adicionar para revisão", "Add for Review")
+# Banner the page shows when the item is already in the draft ("Este item foi adicionado
+# para revisão, mas você ainda pode removê-lo."). The English form is a guess: only the
+# pt-BR one has been seen.
+ADDED_FOR_REVIEW_RE = r"adicionado para revis|added (for|to) review"
+
+
+def add_to_review_draft(app_id: str, kind: str, object_id: str) -> str:
+    """Put a subscription or a subscription group in the review draft with "Add for Review".
+
+    After a canceled submission, the public API refuses POST /v1/subscriptionSubmissions
+    with "has no pending version for submission", but the console accepts it: the button
+    creates the subscription's new version and attaches it to the open draft.
+    `kind` is "subscriptions" or "subscription-groups". The draft holding the app version
+    must exist first, otherwise the menu only offers to create a new submission.
+    """
+    if kind not in ("subscriptions", "subscription-groups"):
+        raise ValueError("kind must be 'subscriptions' or 'subscription-groups'")
+    url = f"{ASC}/apps/{app_id}/distribution/{kind}/{object_id}"
+    # The button is born disabled while the page loads (~6 s). Disabled does NOT prove the
+    # item is already in the draft (trusting it once sent a submission with 1 item instead
+    # of 4): only the "added for review" banner proves it. So wait for the button to enable
+    # or the banner to appear.
+    script = f"""
+import time, json
+ADD = {json.dumps(list(ADD_FOR_REVIEW))}
+ADDED = {ADDED_FOR_REVIEW_RE!r}
+BUTTON = "(()=>{{const b=[...document.querySelectorAll('button')].find(b=>%s.includes(b.innerText.trim())); return b? (b.disabled?'off':'on') : null}})()" % json.dumps(ADD)
+BANNER = "new RegExp(%s,'i').test(document.body.innerText)" % json.dumps(ADDED)
+new_tab({url!r})
+wait_for_load()
+state = None
+for _ in range(30):
+    time.sleep(1.5)
+    if js(BANNER):
+        state = 'added'
+        break
+    state = js(BUTTON)
+    if state == 'on':
+        break
+print('URL=' + str(page_info().get('url','')))
+if state == 'added':
+    print('__SP__ok already in the draft')
+elif state != 'on':
+    print('__SP__ERROR Add for Review button ' + ('did not appear' if state is None else 'stayed disabled for 45 s'))
+else:
+    js("[...document.querySelectorAll('button')].find(b=>%s.includes(b.innerText.trim())).click()" % json.dumps(ADD))
+    time.sleep(3)
+    ok = js(r\"\"\"(()=>{{const el=[...document.querySelectorAll('button,li,a,[role=menuitem],div')]
+      .filter(e=>e.innerText&&/^(Rascunho|Draft)/.test(e.innerText.trim())&&e.getBoundingClientRect().height>0&&e.getBoundingClientRect().height<80);
+      const t=el[el.length-1]; if(!t) return false; t.click(); return true}})()\"\"\")
+    if not ok:
+        print('__SP__ERROR the menu has no open draft submission')
+    else:
+        confirmed = False
+        for _ in range(10):
+            time.sleep(1.5)
+            if js(BANNER):
+                confirmed = True
+                break
+        print('__SP__ok' if confirmed else '__SP__ERROR clicked the draft, but the page did not confirm')
+"""
+    out = browser.run_harness(script, timeout=180)
+    payload = out.split("__SP__", 1)[-1].strip()
+    if not payload.startswith("ok"):
+        raise browser.BrowserError(f"Could not add {kind}/{object_id} to the review draft: {payload[:300]}")
+    return payload

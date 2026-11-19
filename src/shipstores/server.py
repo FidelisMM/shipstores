@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import math
 import tempfile
 import time
 from collections.abc import Callable
@@ -38,7 +40,10 @@ mcp = FastMCP(
         "apple_create_subscription, apple_list_price_points, "
         "apple_set_subscription_price, apple_set_subscription_availability and "
         "apple_create_intro_offer. A product only becomes READY_TO_SUBMIT after it "
-        "has both a price AND availability; check with apple_list_subscriptions.\n\n"
+        "has both a price AND availability; check with apple_list_subscriptions. "
+        "apple_submit_for_review takes every READY_TO_SUBMIT subscription and its group "
+        "in the same submission as the version (an app's first subscription only passes "
+        "that way).\n\n"
         "Outside Apple's API, browser only: the App Store Server Notifications URL "
         "and the Paid Apps agreements.\n\n"
         "Store listing screenshots are API-driven on both stores: "
@@ -91,7 +96,6 @@ def store_doctor() -> dict[str, Any]:
         "team_id": apple_cfg.team_id,
         "private_key_path": str(apple_cfg.private_key_path),
         "private_key_exists": apple_cfg.private_key_path.exists(),
-        "altool_key_dir": str(apple_cfg.private_key_path.parent),
     }
     try:
         data = apple.request("GET", "/v1/apps", params={"limit": 200}, cfg=apple_cfg)
@@ -163,7 +167,9 @@ def store_browser_session(relogin: bool = False, console: str | None = None) -> 
 
     With relogin=True, opens Chrome WITH a window so a person can authenticate
     (2FA cannot be automated). Pass `console` ('play' or 'apple') to open only
-    the one that expired.
+    the one that expired. Without relogin and with both sessions alive, a login
+    window left open is closed (Browser.close, not pkill, with the console cookies
+    saved first) and everything goes back to running headless.
     """
     if not browser.PROFILE_DIR.exists():
         return {
@@ -184,6 +190,9 @@ def store_browser_session(relogin: bool = False, console: str | None = None) -> 
         # Automations fall back to the browser browser-harness drives by default when the
         # dedicated profile loses its session; this shows whether that path works.
         out["sessions_in_user_browser"] = {k: browser.session_status_user_browser(k) for k in caidas}
+    if not caidas and browser.return_to_headless():
+        # Logged in and the login window is still open: close it so it stops taking the screen.
+        out["window"] = "closed; the next operations run headless"
     if caidas and relogin:
         out["action"] = browser.relogin(caidas)
     elif caidas:
@@ -264,20 +273,31 @@ def apple_create_app_form(bundle_id: str, suggested_name: str) -> dict[str, Any]
 
 @_register_tool
 def apple_upload_build(ipa_path: str, platform: str = "ios") -> dict[str, Any]:
-    """Upload an .ipa to App Store Connect via xcrun altool.
+    """Upload an .ipa to App Store Connect through the buildUploads API (no altool).
 
-    Build processing takes a few minutes after the upload — track it with
-    apple_list_builds. platform: ios, osx or appletvos.
+    Version, build number and bundle id come from the .ipa's own Info.plist; the app
+    is found by bundle id. Blocks until Apple accepts the upload (COMPLETE) or rejects
+    it (FAILED, with Apple's errors in `errors`). Processing takes a few more minutes
+    after that — wait for it with apple_wait_build. platform: ios, osx or appletvos.
+    Works on any OS: no Xcode needed.
     """
     path = Path(ipa_path).expanduser()
     if not path.exists():
         raise FileNotFoundError(f"File not found: {path}")
-    output = apple.upload_binary(path, platform, load_apple())
-    return {
-        "uploaded": str(path),
-        "output": output[-2000:],
-        "next_step": "Wait for processing and check with apple_list_builds.",
-    }
+    result = apple.upload_binary(path, platform, load_apple())
+    result["uploaded"] = str(path)
+    if result["state"] == "COMPLETE":
+        result["next_step"] = (
+            f"Wait for processing with apple_wait_build(app_id={result['app_id']}, "
+            f"build_number={result['build_number']})."
+        )
+    elif result["state"] == "FAILED":
+        result["warning"] = "Apple rejected the upload; see errors."
+    else:
+        result["warning"] = (
+            f"Upload sent, but still {result['state']}. Check with apple_wait_build."
+        )
+    return result
 
 
 @_register_tool
@@ -302,6 +322,57 @@ def apple_list_builds(app_id: str, limit: int = 10) -> list[dict[str, Any]]:
         }
         for item in data.get("data", [])
     ]
+
+
+# Interval between apple_wait_build polls. Processing takes 5 to 30 minutes.
+BUILD_POLL_SECONDS = 30
+
+
+@_register_tool
+def apple_wait_build(app_id: str, build_number: str, timeout_min: float = 30) -> dict[str, Any]:
+    """Wait for a build to leave PROCESSING and return its build_id.
+
+    Blocks until build `build_number` (the CFBundleVersion, e.g. "42") reaches
+    VALID, FAILED or INVALID, polling every 30 s. Right after the upload the build
+    is not in the API yet; that counts as waiting, not as an error. With VALID, the
+    build_id can go straight to apple_attach_build.
+    """
+    tries = max(1, math.ceil(timeout_min * 60 / BUILD_POLL_SECONDS))
+    state = "NOT_LISTED_YET"
+    for n in range(tries):
+        if n:
+            time.sleep(BUILD_POLL_SECONDS)
+        data = apple.request(
+            "GET",
+            "/v1/builds",
+            params={
+                "filter[app]": app_id,
+                "filter[version]": build_number,
+                "sort": "-uploadedDate",
+                "limit": 1,
+            },
+        ).get("data", [])
+        if not data:
+            continue
+        build = data[0]
+        state = build["attributes"].get("processingState")
+        if state in ("VALID", "FAILED", "INVALID"):
+            result = {
+                "build_id": build["id"],
+                "build_number": build_number,
+                "processing_state": state,
+                "uploaded_date": build["attributes"].get("uploadedDate"),
+            }
+            if state != "VALID":
+                result["warning"] = (
+                    "Apple rejected the binary. The reason arrives by email to the account; "
+                    "upload a new build with a different build_number."
+                )
+            return result
+    raise apple.AppleError(
+        f"Build {build_number} of app {app_id} still {state} after {timeout_min} min. "
+        "Run apple_wait_build again to keep waiting."
+    )
 
 
 @_register_tool
@@ -410,47 +481,70 @@ def apple_attach_build(version_id: str, build_id: str) -> dict[str, Any]:
 
 
 @_register_tool
-def apple_submit_for_review(version_id: str) -> dict[str, Any]:
+def apple_submit_for_review(version_id: str, include_subscriptions: bool = True) -> dict[str, Any]:
     """Submit a version for Apple review. External action, hard to reverse.
 
     Confirm with the user before calling. Requires the version to already have a
     build attached and complete metadata.
+
+    With include_subscriptions (default), every subscription in READY_TO_SUBMIT and
+    its group go in the same submission. An app's first subscription only passes this
+    way: in-app purchases always travel with a version, and without the group the
+    submission gets stuck. Same as "Add for Review" on the version, on each plan and on
+    the group in the console, picking the same draft. Reuses the app's open draft
+    submission, if there is one. Before submitting it counts the draft's items and
+    stops, without submitting, if any is missing.
     """
     # The 'app' relationship does not accept a direct GET (403 FORBIDDEN_ERROR); the
     # app_id comes from the include on the version itself.
     version = apple.request("GET", f"/v1/appStoreVersions/{version_id}", params={"include": "app"})
     app_id = version["data"]["relationships"]["app"]["data"]["id"]
 
-    submission = apple.request(
-        "POST",
-        "/v1/reviewSubmissions",
-        json={
-            "data": {
-                "type": "reviewSubmissions",
-                "attributes": {"platform": "IOS"},
-                "relationships": {"app": {"data": {"type": "apps", "id": app_id}}},
-            }
-        },
-    )
-    submission_id = submission["data"]["id"]
-    apple.request(
-        "POST",
-        "/v1/reviewSubmissionItems",
-        json={
-            "data": {
-                "type": "reviewSubmissionItems",
-                "relationships": {
-                    "reviewSubmission": {
-                        "data": {"type": "reviewSubmissions", "id": submission_id}
+    submission_id = _draft_submission(app_id)
+    # Without the include, Apple returns the items without the relationship, the version
+    # looks absent from the draft and the next POST gets 409 "already added".
+    items = apple.request(
+        "GET", f"/v1/reviewSubmissions/{submission_id}/items", params={"include": "appStoreVersion"}
+    )["data"]
+    versions_in_draft = {
+        (((i.get("relationships") or {}).get("appStoreVersion") or {}).get("data") or {}).get("id")
+        for i in items
+    }
+    if version_id not in versions_in_draft:
+        apple.request(
+            "POST",
+            "/v1/reviewSubmissionItems",
+            json={
+                "data": {
+                    "type": "reviewSubmissionItems",
+                    "relationships": {
+                        "reviewSubmission": {
+                            "data": {"type": "reviewSubmissions", "id": submission_id}
+                        },
+                        "appStoreVersion": {
+                            "data": {"type": "appStoreVersions", "id": version_id}
+                        },
                     },
-                    "appStoreVersion": {
-                        "data": {"type": "appStoreVersions", "id": version_id}
-                    },
-                },
-            }
-        },
-    )
-    apple.request(
+                }
+            },
+        )
+
+    # The version must be in the draft first: it is what unlocks the first subscription.
+    extras = (_submit_subscriptions(app_id, submission_id) if include_subscriptions
+              else {"subscriptions": [], "groups": [], "warnings": []})
+
+    expected = 1 + len(extras["subscriptions"]) + len(extras["groups"])
+    items = apple.request("GET", f"/v1/reviewSubmissions/{submission_id}/items")["data"]
+    if include_subscriptions and len(items) < expected:
+        # Submitting like this would send the version without its plans, and Apple
+        # rejects that under 2.1.
+        raise apple.AppleError(
+            f"Draft {submission_id} has {len(items)} items, expected {expected} "
+            f"(version + {len(extras['subscriptions'])} subscriptions + {len(extras['groups'])} groups). "
+            "Nothing was submitted. Check App Store Connect > Distribution > Draft Submissions."
+        )
+
+    result = apple.request(
         "PATCH",
         f"/v1/reviewSubmissions/{submission_id}",
         json={
@@ -461,7 +555,96 @@ def apple_submit_for_review(version_id: str) -> dict[str, Any]:
             }
         },
     )
-    return {"review_submission_id": submission_id, "version_id": version_id, "submitted": True}
+    out = {
+        "review_submission_id": submission_id,
+        "version_id": version_id,
+        "submitted": True,
+        "state": result.get("data", {}).get("attributes", {}).get("state"),
+        "items": len(items),
+        "subscriptions": extras["subscriptions"],
+        "groups": extras["groups"],
+    }
+    if extras["warnings"]:
+        out["warnings"] = extras["warnings"]
+    return out
+
+
+def _draft_submission(app_id: str) -> str:
+    """The app's open iOS draft submission (READY_FOR_REVIEW, not submitted yet), or a new one."""
+    subs = apple.request("GET", f"/v1/apps/{app_id}/reviewSubmissions", params={"limit": 10})
+    for sub in subs.get("data", []):
+        attrs = sub["attributes"]
+        if attrs.get("state") == "READY_FOR_REVIEW" and attrs.get("platform", "IOS") == "IOS":
+            return sub["id"]
+    created = apple.request(
+        "POST",
+        "/v1/reviewSubmissions",
+        json={
+            "data": {
+                "type": "reviewSubmissions",
+                "attributes": {"platform": "IOS"},
+                "relationships": {"app": {"data": {"type": "apps", "id": app_id}}},
+            }
+        },
+    )
+    return created["data"]["id"]
+
+
+def _no_pending_version(exc: apple.AppleError) -> bool:
+    return "no pending version" in str(exc)
+
+
+def _submit_subscriptions(app_id: str, submission_id: str) -> dict[str, list[str]]:
+    """Put each READY_TO_SUBMIT subscription and its group in the open draft.
+
+    A subscription failure stops everything (without it the submission goes out
+    incomplete). A group failure becomes a warning: a group that already went through
+    review may refuse a new item. After a canceled submission, the API refuses with
+    "no pending version" what the console accepts; in that case the item goes in
+    through the console's "Add for Review" button.
+    """
+    subscriptions: list[str] = []
+    groups: list[str] = []
+    warnings: list[str] = []
+    for group in apple.request("GET", f"/v1/apps/{app_id}/subscriptionGroups").get("data", []):
+        subs = apple.request("GET", f"/v1/subscriptionGroups/{group['id']}/subscriptions").get("data", [])
+        ready = [s for s in subs if s["attributes"].get("state") == "READY_TO_SUBMIT"]
+        for sub in ready:
+            try:
+                apple.request(
+                    "POST",
+                    "/v1/subscriptionSubmissions",
+                    json={"data": {"type": "subscriptionSubmissions", "relationships": {
+                        "subscription": {"data": {"type": "subscriptions", "id": sub["id"]}}}}},
+                )
+            except apple.AppleError as exc:
+                if not _no_pending_version(exc):
+                    raise
+                apple_console.add_to_review_draft(app_id, "subscriptions", sub["id"])
+                warnings.append(f"subscription {sub['id']} went in through the console (API: no pending version)")
+            subscriptions.append(sub["id"])
+        if not ready:
+            continue
+        try:
+            apple.request(
+                "POST",
+                "/v1/subscriptionGroupSubmissions",
+                json={"data": {"type": "subscriptionGroupSubmissions", "relationships": {
+                    "subscriptionGroup": {"data": {"type": "subscriptionGroups", "id": group["id"]}}}}},
+            )
+            groups.append(group["id"])
+        except apple.AppleError as exc:
+            failure: Exception = exc
+            if _no_pending_version(exc):
+                try:
+                    apple_console.add_to_review_draft(app_id, "subscription-groups", group["id"])
+                    groups.append(group["id"])
+                    warnings.append(f"group {group['id']} went in through the console (API: no pending version)")
+                    continue
+                except browser.BrowserError as console_exc:
+                    failure = console_exc
+            warnings.append(f"group {group['id']} did not join the submission: {str(failure)[:300]}")
+    return {"subscriptions": subscriptions, "groups": groups, "warnings": warnings}
 
 
 def _active_submission(app_id: str, states: tuple[str, ...]) -> str:
@@ -477,7 +660,9 @@ def _editable_app_info(app_id: str) -> str:
     """The editable appInfo (the one not on sale; if there is only one, that one)."""
     infos = apple.request("GET", f"/v1/apps/{app_id}/appInfos")["data"]
     for info in infos:
-        if info["attributes"].get("appStoreState") != "READY_FOR_SALE":
+        # appStoreState is deprecated; newer accounts only carry `state`
+        state = info["attributes"].get("appStoreState") or info["attributes"].get("state")
+        if state not in ("READY_FOR_SALE", "READY_FOR_DISTRIBUTION", "REMOVED_FROM_SALE"):
             return info["id"]
     return infos[0]["id"]
 
@@ -551,6 +736,67 @@ def apple_set_app_info(
                       json={"data": {"type": "apps", "id": app_id, "attributes": {"contentRightsDeclaration": value}}})
         done.append("contentRightsDeclaration")
     return {"app_id": app_id, "updated": done}
+
+
+# Apple's limit for the app name on the App Store
+APP_NAME_MAX = 30
+
+
+def _name_taken(exc: apple.AppleError) -> bool:
+    """Apple answers 409 when another app on the store already uses the name."""
+    text = str(exc).lower()
+    return "duplicate" in text or "already being used" in text or "already in use" in text
+
+
+@_register_tool
+def apple_set_app_name(
+    app_id: str,
+    name: str,
+    locale: str | None = None,
+    alternatives: list[str] | None = None,
+) -> dict[str, Any]:
+    """Change the app's name on the App Store (appInfoLocalizations.name). External action.
+
+    Changes the editable appInfo (the one for the version being prepared, not the one
+    on sale). Without locale, changes it in every language of the listing. The name
+    must be unique on the App Store and at most 30 characters: if Apple refuses it as
+    already in use, each item of `alternatives` is tried in order, stopping at the
+    first one accepted. apple_set_app_info covers subtitle, URLs and categories, but
+    not the name.
+    """
+    info_id = _editable_app_info(app_id)
+    locs = apple.request("GET", f"/v1/appInfos/{info_id}/appInfoLocalizations")["data"]
+    if locale is not None:
+        locs = [loc for loc in locs if loc["attributes"]["locale"] == locale]
+        if not locs:
+            raise apple.AppleError(f"The appInfo has no {locale} localization.")
+
+    refused: list[dict[str, str]] = []
+    for candidate in [name, *(alternatives or [])]:
+        if len(candidate) > APP_NAME_MAX:
+            refused.append({"name": candidate, "reason": f"longer than {APP_NAME_MAX} characters"})
+            continue
+        try:
+            for loc in locs:
+                apple.request("PATCH", f"/v1/appInfoLocalizations/{loc['id']}",
+                              json={"data": {"type": "appInfoLocalizations", "id": loc["id"],
+                                             "attributes": {"name": candidate}}})
+        except apple.AppleError as exc:
+            if not _name_taken(exc):
+                raise
+            refused.append({"name": candidate, "reason": "already used by another App Store app"})
+            continue
+        return {
+            "app_id": app_id,
+            "name": candidate,
+            "locales": [loc["attributes"]["locale"] for loc in locs],
+            "refused": refused,
+        }
+    raise apple.AppleError(
+        "Apple accepted none of the names: "
+        + "; ".join(f"'{r['name']}' ({r['reason']})" for r in refused)
+        + ". Pass other options in alternatives."
+    )
 
 
 # Neutral age rating answers; overrides change only what the app actually has
@@ -914,6 +1160,34 @@ def apple_set_review_details(
         },
     )
     return {"review_detail_id": criado["data"]["id"], "created": sorted(atributos)}
+
+
+@_register_tool
+def apple_attach_review_file(version_id: str, file_path: str) -> dict[str, Any]:
+    """Attach a file (the iPhone video, a PDF) to the version's App Review information. External action.
+
+    The preferred path for "2.1 Information Needed": it is pure API and does not
+    depend on the App Store Connect web session, which expires often and needs a 2FA
+    login. Sequence: answers in the notes with apple_set_review_details, the video
+    here, then apple_resubmit_for_review. Use apple_reply_review (Resolution Center,
+    through the browser) only if Apple insists on an answer there. HEVC video is
+    converted to H.264 at 1920px before uploading.
+    """
+    path = Path(file_path).expanduser()
+    if not path.exists():
+        raise FileNotFoundError(f"Attachment not found: {path}")
+    detail = apple.request(
+        "GET", f"/v1/appStoreVersions/{version_id}/appStoreReviewDetail"
+    ).get("data")
+    if not detail:
+        raise ValueError("The version has no App Review information yet: run apple_set_review_details first.")
+    upload = apple_review.prepare_attachment(path)
+    attachment_id = apple.upload_asset(
+        "appStoreReviewAttachments",
+        upload,
+        {"appStoreReviewDetail": {"data": {"type": "appStoreReviewDetails", "id": detail["id"]}}},
+    )
+    return {"attachment_id": attachment_id, "file": upload.name, "review_detail_id": detail["id"]}
 
 
 @_register_tool
@@ -1869,25 +2143,65 @@ def play_submit_for_review(package_name: str) -> dict[str, Any]:
 
 @_register_tool
 def play_content_status(package_name: str) -> dict[str, Any]:
-    """Show how many "App content" declarations are still missing before the app can publish.
+    """Tell which "App content" declarations are pending, or that everything is up to date.
 
-    A draft app on Play only leaves draft once all of them are complete. None of
-    them has an API endpoint — they are console forms.
+    Reads the App content page (/app-content/overview), not the release checklist on
+    the dashboard. Its "Needs attention (N)" tab lists each pending declaration with a
+    "Start declaration" or "Edit declaration" button; when nothing is missing, the page
+    says it is all up to date and the pending block disappears.
+
+    Returns `up_to_date`, `pending` (the N on the tab) and `pending_declarations` (each
+    one's name as the console shows it). A draft app on Play only leaves draft once all
+    of them are complete, and none of them has an API endpoint. Console labels are
+    matched in pt-BR for now.
     """
     dev_id, app_id = _console_ids(package_name)
+    index = f"{play_console.CONSOLE}/developers/{dev_id}/app/{app_id}/app-content/overview"
     out = play_console.run(
         dev_id,
         app_id,
-        f'goto_url("{play_console.CONSOLE}/developers/{dev_id}/app/{app_id}/app-dashboard")\n'
-        "wait_for_load()\ntime.sleep(9)\n"
-        # "Tarefas concluídas" ("Tasks completed") is console UI text, matched literally (pt-BR)
-        't = body()\ni = t.find("Tarefas concluídas")\n'
-        'print(t[i:i+40].split("\\n")[0] if i > 0 else "?")\n',
+        f"goto_url({index!r})\n"
+        "wait_for_load()\ntime.sleep(10)\n"
+        "t = body()\n"
+        "tab, names = None, []\n"
+        "for n in cdp('Accessibility.getFullAXTree').get('nodes', []):\n"
+        "    if n.get('ignored'):\n"
+        "        continue\n"
+        "    role, name = (n.get('role') or {}).get('value'), _ax_name(n)\n"
+        # "Precisam de atenção (N)" ("Needs attention (N)") is console UI text (pt-BR)
+        "    if role == 'tab' and re.match(r'^Precisa', name):\n"
+        "        tab = name\n"
+        # Each pending one has a button "Iniciar/Editar a declaração de <name>"
+        # ("Start/Edit the <name> declaration")
+        "    m = re.match(r'^(?:Iniciar|Editar|Atualizar|Revisar) a declaração de (.+)$', name)\n"
+        "    if role == 'button' and m and m.group(1).strip() not in names:\n"
+        "        names.append(m.group(1).strip())\n"
+        "n_tab = re.search(r'\\((\\d+)\\)', tab or '')\n"
+        # "Tudo em dia" ("All up to date") is console UI text (pt-BR)
+        "print(json.dumps({'url': page_info()['url'], 'tab': tab,\n"
+        "    'n_tab': int(n_tab.group(1)) if n_tab else None,\n"
+        "    'up_to_date': 'Tudo em dia' in t, 'names': names}, ensure_ascii=False))\n",
     )
+    data = play_console.parse_json_tail(out)
+    if not isinstance(data, dict) or "/app-content/overview" not in data.get("url", ""):
+        raise RuntimeError(
+            f"Could not read the App content page ({index}). Output:\n{out.strip()[-800:]}"
+        )
+    names = data["names"]
+    pending = data["n_tab"] if data["n_tab"] is not None else len(names)
+    up_to_date = data["up_to_date"] and not names
+    if not up_to_date and not pending:
+        raise RuntimeError(
+            "The App content page opened but showed neither 'up to date' nor pending "
+            f"declarations (tab: {data['tab']!r}). The console may not have finished "
+            "loading (try again), or it is not in pt-BR, the only language matched so far."
+        )
     return {
         "package_name": package_name,
-        "progress": out.strip().splitlines()[-1] if out.strip() else "?",
-        "index": f"{play_console.CONSOLE}/developers/{dev_id}/app/{app_id}/app-content/overview",
+        "up_to_date": up_to_date,
+        "pending": 0 if up_to_date else pending,
+        "pending_declarations": names,
+        "index": index,
     }
 
 
@@ -2005,6 +2319,11 @@ def play_data_safety_fill(
     account_deletion_url: str | None = None,
     encrypted_in_transit: bool = True,
     supports_deletion: bool = True,
+    account_creation: str | list[str] | None = None,
+    account_creation_other: str | None = None,
+    external_accounts: bool | None = None,
+    external_account_types: list[str] | None = None,
+    external_account_description: str | None = None,
 ) -> dict[str, Any]:
     """Fill in the Data safety CSV and return a summary of what was declared.
 
@@ -2015,12 +2334,37 @@ def play_data_safety_fill(
     collected_data maps the Response ID of each collected data type (e.g. "PSL_EMAIL") to
     {"group": "PSL_DATA_TYPES_PERSONAL", "shared": false, "optional": false,
      "purposes": ["PSL_APP_FUNCTIONALITY", "PSL_ACCOUNT_MANAGEMENT"]}.
+
+    Accounts (the questions at the top of the template):
+    - account_creation: how users create an account IN the app. A list with
+      "password" (username and password), "other_auth" (username and other
+      authentication), "password_and_other_auth", "oauth", "other" (needs
+      account_creation_other), or "none" (the app does not allow creating accounts;
+      alone). Response IDs (PSL_ACM_*) are accepted too. Omitted = ["password",
+      "oauth"]. Methods not chosen are written empty. With "none",
+      account_deletion_url only goes to the data deletion URL.
+    - external_accounts: can users log in with an account created OUTSIDE the app
+      (e.g. the company registers the customer)? Omitted = the question is left as
+      is. With True, pass external_account_types: "outside_app_id" (SIM card, service
+      subscription), "enterprise" or "other" (needs external_account_description).
+
+    Example (accounts created by the provider, no sign-up in the app):
+      account_creation="none", external_accounts=True,
+      external_account_types=["other"],
+      external_account_description="Accounts are created by the provider for customers under contract."
     """
     responses = data_safety.build_responses(
         collected_data,
         encrypted_in_transit=encrypted_in_transit,
         supports_deletion=supports_deletion,
         account_deletion_url=account_deletion_url,
+        account_methods=(
+            data_safety.DEFAULT_ACCOUNT_METHODS if account_creation is None else account_creation
+        ),
+        account_creation_other=account_creation_other,
+        external_accounts=external_accounts,
+        external_account_types=external_account_types or (),
+        external_account_description=external_account_description,
     )
     result = data_safety.fill_csv(
         Path(template_path).expanduser(), Path(destination_path).expanduser(), responses
@@ -2029,47 +2373,158 @@ def play_data_safety_fill(
     return result
 
 
+# Data safety CSV import, as walked through on a real app. Console labels are pt-BR,
+# matched literally (English in parentheses):
+#   1. "Importar de arquivo CSV" (Import from CSV file) opens dialog 1 (upload), with
+#      "Importar"/"Descartar" (Import/Discard);
+#   2. the file goes in through input[type=file] and the dialog says
+#      "O upload do arquivo CSV foi concluído" (The CSV file upload is complete);
+#   3. "Importar" in dialog 1 opens dialog 2, "Importar de arquivo CSV?" (Import from CSV
+#      file?), with "Cancelar"/"Importar". Only its "Importar" applies the CSV.
+#      ax_click(index=1) does not reach that button; real_click on the button of the LAST
+#      dialog does;
+#   4. once applied, the dialogs close and the wizard jumps to step 2. "Salvar" (Save) only
+#      exists on step 5, so it is "Avançar" (Next) until there and then "Salvar"; the
+#      console answers "A mudança foi salva" (The change was saved).
+# Uses __PLACEHOLDER__ because the body is JS full of braces.
+_DS_IMPORT_SCRIPT = r"""
+URL, CSV, DRY_RUN = __URL__, __CSV__, __DRY_RUN__
+res = {'upload_ok': False, 'confirm_dialog': False, 'imported': False,
+       'steps': [], 'errors': [], 'saved': False}
+# Visible dialogs only: after the second "Importar" the upload dialog stays in the DOM
+# with zero height and visibility hidden, and counting it made the import look refused.
+VISIBLE = ("Array.from(document.querySelectorAll('[role=dialog]'))"
+           ".filter(d=>d.getBoundingClientRect().height>0&&getComputedStyle(d).visibility!=='hidden')")
+DIALOGS = "JSON.stringify(" + VISIBLE + ".map(d=>d.innerText))"
+LAST_BUTTON = ("(()=>{const ds=" + VISIBLE + ";"
+               "const d=ds[ds.length-1]; if(!d) return null;"
+               "return Array.from(d.querySelectorAll('button')).find(b=>b.innerText.trim()==='%s')})()")
+
+def dialogs():
+    return json.loads(js(DIALOGS) or '[]')
+
+def wait_until(cond, seconds):
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        if cond():
+            return True
+        time.sleep(1)
+    return False
+
+def step():
+    m = re.search(r'Etapa (\d) de 5', body())
+    return int(m.group(1)) if m else None
+
+def visible_errors():
+    return json.loads(js("JSON.stringify(Array.from(document.querySelectorAll('mat-error,[role=alert]'))"
+                         ".map(e=>e.innerText.trim()).filter(Boolean).slice(0,10))") or '[]')
+
+def finish(reason=None):
+    if reason:
+        res['stopped_at'] = reason
+    print('RESULT=' + json.dumps(res, ensure_ascii=False))
+
+def import_csv():
+    goto_url(URL)
+    wait_for_load()
+    time.sleep(9)
+    res['open'] = ax_click(r'^Importar de arquivo CSV$', pause=4)
+    if not wait_until(lambda: any('Para importar as respostas' in d for d in dialogs()), 15):
+        return finish('the upload dialog did not open')
+    root = cdp('DOM.getDocument')['root']['nodeId']
+    target = cdp('DOM.querySelector', nodeId=root, selector='input[type=file]')['nodeId']
+    if not target:
+        return finish('input[type=file] not found in the upload dialog')
+    cdp('DOM.setFileInputFiles', files=[CSV], nodeId=target)
+    if not wait_until(lambda: any('upload do arquivo CSV foi concluído' in d for d in dialogs()), 30):
+        res['dialogs'] = [d[:600] for d in dialogs()]
+        return finish('the CSV upload did not complete (file refused?)')
+    res['upload_ok'] = True
+
+    # dialog 1 -> "Importar" opens confirmation dialog 2
+    res['import_1'] = real_click(LAST_BUTTON % 'Importar', pause=3)
+    if not wait_until(lambda: any(d.startswith('Importar de arquivo CSV?') for d in dialogs()), 15):
+        res['dialogs'] = [d[:600] for d in dialogs()]
+        return finish('the "Importar de arquivo CSV?" confirmation dialog did not appear')
+    res['confirm_dialog'] = True
+
+    if DRY_RUN:
+        res['cancel'] = real_click(LAST_BUTTON % 'Cancelar', pause=3)
+        res['remaining_dialogs'] = len(dialogs())
+        return finish('dry_run: confirmation canceled, nothing applied')
+
+    res['import_2'] = real_click(LAST_BUTTON % 'Importar', pause=3)
+    # Applied, both dialogs close (and the wizard may jump to step 2)
+    if not wait_until(lambda: not dialogs(), 20):
+        res['dialogs'] = [d[:600] for d in dialogs()]
+        return finish('the CSV was not applied: the confirmation dialog is still open')
+    res['imported'] = True
+
+    current = step()
+    res['steps'].append(current)
+    while current is not None and current < 5:
+        ax_click(r'^Avançar$', pause=5)
+        new = step()
+        res['steps'].append(new)
+        if new is None or new <= current:
+            res['errors'] = visible_errors()
+            return finish('the wizard did not move past step ' + str(current) + ' (an answer missing from the CSV?)')
+        current = new
+    if current != 5:
+        return finish('could not find step 5 (Preview) to save')
+    res['save'] = ax_click(r'^Salvar$', pause=8)
+    res['saved'] = wait_until(lambda: 'A mudança foi salva' in body(), 15)
+    res['errors'] = visible_errors()
+    return finish(None if res['saved'] else 'clicked Save but the console did not confirm')
+
+import_csv()
+"""
+
+
 @_register_tool
-def play_data_safety_import(package_name: str, csv_path: str) -> dict[str, Any]:
-    """Import the filled-in CSV into the Data safety declaration.
+def play_data_safety_import(
+    package_name: str, csv_path: str, dry_run: bool = False
+) -> dict[str, Any]:
+    """Import the filled-in CSV into the Data safety declaration and save it.
 
     External action: replaces the app's entire declaration. Review the summary from
     play_data_safety_fill with the user before calling.
+
+    The console asks for two confirmations: the upload dialog ("Import") and then
+    "Import from CSV file?" ("Import" again). Only the second one applies the file.
+    Then the wizard is walked with "Next" up to the Preview, where "Save" stores it.
+    `imported` is True only when both dialogs closed after the second "Import";
+    `saved` is True only when the console answers that the change was saved. If a step
+    does not advance (an answer missing), it stops without saving and returns the errors.
+
+    dry_run=True goes as far as the "Import from CSV file?" dialog and clicks "Cancel":
+    it checks that the console accepts the file without applying or saving anything.
+    Console labels are matched in pt-BR.
     """
     dev_id, app_id = _console_ids(package_name)
-    path = Path(csv_path).expanduser()
+    path = Path(csv_path).expanduser().resolve()
     if not path.exists():
         raise FileNotFoundError(f"CSV not found: {path}")
+    url = play_console.form_url(dev_id, app_id, "data_safety")
     out = play_console.run(
         dev_id,
         app_id,
-        f'goto_url("{play_console.CONSOLE}/developers/{dev_id}/app/{app_id}'
-        '/app-content/data-privacy-security")\n'
-        "wait_for_load()\ntime.sleep(9)\n"
-        # Button labels are console UI text, matched literally (pt-BR):
-        # "Importar de arquivo CSV" (Import from CSV file), "Importar" (Import),
-        # "Fazer upload" (Upload), "Continuar" (Continue), "Salvar" (Save)
-        'print(ax_click(r"Importar de arquivo CSV", pause=6))\n'
-        # The native file picker does not open over CDP, but the page's
-        # input[type=file] accepts the file directly via DOM.setFileInputFiles.
-        'root = cdp("DOM.getDocument")["root"]["nodeId"]\n'
-        'target = cdp("DOM.querySelector", nodeId=root, selector="input[type=file]")["nodeId"]\n'
-        'if not target:\n'
-        '    raise RuntimeError("input[type=file] not found on the Data safety page")\n'
-        f'cdp("DOM.setFileInputFiles", files=[{str(path)!r}], nodeId=target)\n'
-        'time.sleep(8)\n'
-        'print(ax_click(r"^(Importar|Fazer upload|Continuar)$", pause=8))\n'
-        'print(ax_click(r"^Salvar$", pause=8))\n'
-        'print(dismiss_dialog())\n',
+        _DS_IMPORT_SCRIPT.replace("__URL__", repr(url))
+        .replace("__CSV__", repr(str(path)))
+        .replace("__DRY_RUN__", repr(dry_run)),
+        timeout=420,
     )
-    return {
-        "csv": str(path),
-        "result": out.strip()[-800:],
-        "warning": (
-            "Confirm with play_data_safety_export that the values were applied — in "
-            "some states the console accepts the click without applying the file."
-        ),
-    }
+    line = next(
+        (ln for ln in reversed(out.strip().splitlines()) if ln.startswith("RESULT=")), None
+    )
+    if not line:
+        raise RuntimeError(f"The import returned no result. Output:\n{out.strip()[-1500:]}")
+    result = json.loads(line.removeprefix("RESULT="))
+    result["csv"] = str(path)
+    result["dry_run"] = dry_run
+    if not dry_run:
+        result["ok"] = result["imported"] and result["saved"]
+    return result
 
 
 # ----------------------------------------------------------------------- eas
@@ -2106,16 +2561,49 @@ def eas_build_start(project_path: str, platform: str, profile: str = "production
     eas_build_status using the returned build_id.
 
     platform: ios, android or all. profile: a profile defined in eas.json.
+    If the Free plan's monthly builds run out, the error points to eas_build_local.
     """
-    result = eas.run(
-        ["build", "--platform", platform, "--profile", profile, "--json", "--no-wait"],
-        project_path,
-        timeout=eas.BUILD_START_TIMEOUT,
-    )
+    try:
+        result = eas.run(
+            ["build", "--platform", platform, "--profile", profile, "--json", "--no-wait"],
+            project_path,
+            timeout=eas.BUILD_START_TIMEOUT,
+        )
+    except eas.EasError as exc:
+        if eas.FREE_PLAN_EXHAUSTED in str(exc).lower():
+            raise eas.EasError(
+                f"{exc}\n\nThe account used up this month's Free plan builds. Build on this machine with "
+                f"eas_build_local(project_path, platform={platform!r}, profile={profile!r})."
+            ) from exc
+        raise
     builds = result if isinstance(result, list) else [result]
     return {
         "started": [eas.summarize(build) for build in builds],
         "next_step": "Track it with eas_build_status(build_id).",
+    }
+
+
+@_register_tool
+def eas_build_local(
+    project_path: str, platform: str = "ios", profile: str = "production", output: str | None = None
+) -> dict[str, Any]:
+    """Build on this machine with `eas build --local`, in the background, without using EAS quota.
+
+    The path for when the account runs out of Free plan builds. iOS needs macOS with
+    Xcode, fastlane and CocoaPods; Android needs the Android SDK and a JDK. Installs
+    dependencies with `npm ci` when node_modules is missing. Returns right away with
+    the log and binary paths; the build takes 15 to 30 min. It is done when the log
+    ends with "[eas_build_local] exit=N" (0 = success, binary at artifact_path).
+    Without output, writes to a temporary directory.
+    """
+    started = eas.start_local_build(project_path, platform, profile, output)
+    return {
+        **started,
+        "next_step": (
+            f"Follow the end of the log ({started['log_path']}) until the line "
+            f"'{eas.LOCAL_DONE_MARKER}N'. With exit=0, upload the binary with apple_upload_build and wait "
+            "for processing with apple_wait_build (Android: play_upload_bundle)."
+        ),
     }
 
 
@@ -2162,14 +2650,14 @@ def eas_submit(
 
     External action: this really publishes. Confirm the profile and platform with the user.
 
-    iOS: downloads the .ipa from EAS and uploads it via altool with this server's key
+    iOS: downloads the .ipa from EAS and uploads it through the buildUploads API with this server's key
     (eas submit does not accept an API key without a prompt). Android: eas submit with
     the submit profile in eas.json. Without build_id, uses the most recent finished build.
     """
     if platform == "ios":
         # eas submit refuses an App Store Connect key in --non-interactive mode
         # ("API Keys cannot be set up in --non-interactive mode"). Download the .ipa
-        # from EAS and upload it via altool with this server's account key.
+        # from EAS and upload it through the buildUploads API with this server's account key.
         if build_id:
             build = eas.summarize(eas.run(["build:view", build_id, "--json"], project_path))
         else:
@@ -2185,13 +2673,13 @@ def eas_submit(
         ipa = eas.download_artifact(
             build["artifact_url"], Path(tempfile.mkdtemp(prefix="sp-ipa-")) / f"{build['build_id']}.ipa"
         )
-        output = apple.upload_binary(ipa, "ios", load_apple())
+        upload = apple.upload_binary(ipa, "ios", load_apple())
         return {
             "platform": platform,
             "build_id": build["build_id"],
             "build_number": build["build_number"],
-            "output": output[-1500:],
-            "next_step": "Wait for processing (apple_list_builds) and attach it with apple_attach_build.",
+            "upload": upload,
+            "next_step": "Wait for processing (apple_wait_build) and attach it with apple_attach_build.",
         }
     args = ["submit", "--platform", platform, "--profile", profile]
     if build_id:

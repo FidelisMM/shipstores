@@ -13,7 +13,7 @@
 
 <p align="center">
   <a href="#quick-start">Quick start</a> ·
-  <a href="#tools">60 tools</a> ·
+  <a href="#tools">64 tools</a> ·
   <a href="#workflows">Workflows</a> ·
   <a href="#hard-won-lessons">Hard-won lessons</a> ·
   <a href="CONTRIBUTING.md">Contributing</a>
@@ -53,13 +53,13 @@ Neither store lets anyone create an app record through an API, so `*_create_app_
 
 ### How it compares
 
-There are other good MCP servers for the stores, such as [app-publish-mcp](https://github.com/mikusnuz/app-publish-mcp) and [mobile-release-mcp](https://github.com/Jeronimo0228/mobile-release-mcp), and they cover the public APIs well. shipstores focuses on the steps that have no public API and usually end up done by hand: replying to App Review, the App Store privacy label and Google Play's "App content" declarations. It also keeps the tool list short (60 tools), and tools that publish or submit say so in their description, so the agent asks before acting.
+There are other good MCP servers for the stores, such as [app-publish-mcp](https://github.com/mikusnuz/app-publish-mcp) and [mobile-release-mcp](https://github.com/Jeronimo0228/mobile-release-mcp), and they cover the public APIs well. shipstores focuses on the steps that have no public API and usually end up done by hand: replying to App Review, the App Store privacy label and Google Play's "App content" declarations. It also keeps the tool list short (64 tools), and tools that publish or submit say so in their description, so the agent asks before acting.
 
 If you only need what the public APIs offer, any of them will do. If you keep getting stuck on the console-only steps, that's the gap this project fills.
 
 ## Quick start
 
-Requirements: Python 3.12+, [uv](https://docs.astral.sh/uv/), an App Store Connect API key and/or a Google Play service account. Xcode command line tools for iOS uploads (`xcrun altool`).
+Requirements: Python 3.12+, [uv](https://docs.astral.sh/uv/), an App Store Connect API key and/or a Google Play service account. iOS uploads go through the App Store Connect API, so no Xcode is needed to publish (only to build).
 
 Add it to Claude Code (no clone needed, `uvx` fetches it from [PyPI](https://pypi.org/project/shipstores/) and runs it):
 
@@ -89,7 +89,7 @@ For example, `SHIPSTORES_TOOLSETS=apple,eas` exposes only Apple and EAS tools, p
 
 ### Console features (optional)
 
-Privacy labels, availability, App Review replies and Play "App content" forms run through the store consoles' own web endpoints in a dedicated, logged-in browser profile, driven by [browser-harness](https://github.com/browser-use/browser-harness). Log in once:
+Privacy labels, availability, App Review replies and Play "App content" forms run through the store consoles' own web endpoints in a dedicated, logged-in Chrome profile, which shipstores drives directly over the Chrome DevTools Protocol (headless, so it never takes over your screen). [browser-harness](https://github.com/browser-use/browser-harness) is only needed without that profile, or as the fallback when the profile's session expired. Log in once:
 
 ```bash
 uvx --from shipstores python -m shipstores.browser login   # opens a window; sign in to both consoles (2FA included)
@@ -101,11 +101,11 @@ uvx --from shipstores python -m shipstores.browser login   # opens a window; sig
 
 **Diagnostics** — `store_doctor`, `store_browser_session`, `store_audit_identity`
 
-**Apple: build & release** — `apple_list_apps`, `apple_register_bundle_id`, `apple_create_app_form`, `apple_upload_build`, `apple_list_builds`, `apple_create_version`, `apple_list_versions`, `apple_set_version_string`, `apple_attach_build`, `apple_submit_for_review`, `apple_resubmit_for_review`, `apple_cancel_submission`, `apple_testflight_invite`
+**Apple: build & release** — `apple_list_apps`, `apple_register_bundle_id`, `apple_create_app_form`, `apple_upload_build`, `apple_list_builds`, `apple_wait_build`, `apple_create_version`, `apple_list_versions`, `apple_set_version_string`, `apple_attach_build`, `apple_submit_for_review`, `apple_resubmit_for_review`, `apple_cancel_submission`, `apple_testflight_invite`
 
-**Apple: listing & app setup** — `apple_update_listing`, `apple_upload_screenshots`, `apple_set_app_info` (subtitle, URLs, categories, copyright, content rights), `apple_set_age_rating`, `apple_set_free_price`, `apple_set_availability`, `apple_set_app_privacy`, `apple_review_details`, `apple_set_review_details`
+**Apple: listing & app setup** — `apple_update_listing`, `apple_upload_screenshots`, `apple_set_app_info` (subtitle, URLs, categories, copyright, content rights), `apple_set_app_name` (the store name, in every language or one, with alternatives if it is taken), `apple_set_age_rating`, `apple_set_free_price`, `apple_set_availability`, `apple_set_app_privacy`, `apple_review_details`, `apple_set_review_details`
 
-**Apple: App Review** — `apple_review_messages` (read the rejection and its guideline), `apple_reply_review` (answer with text + attachments; iPhone HEVC videos are converted to H.264; returns a preview and a `confirm_token` first; only sends when called again with that token)
+**Apple: App Review** — `apple_review_messages` (read the rejection and its guideline), `apple_attach_review_file` (attach the walkthrough video or a PDF to the review notes, API only), `apple_reply_review` (answer with text + attachments; iPhone HEVC videos are converted to H.264; returns a preview and a `confirm_token` first; only sends when called again with that token)
 
 **Apple: subscriptions** — `apple_create_subscription_group`, `apple_create_subscription`, `apple_list_price_points`, `apple_set_subscription_price`, `apple_set_subscription_availability`, `apple_create_intro_offer`, `apple_list_subscriptions`, `apple_upload_subscription_screenshot`
 
@@ -113,9 +113,9 @@ uvx --from shipstores python -m shipstores.browser login   # opens a window; sig
 
 **Play Console forms** — `play_content_status`, `play_content_open`, `play_content_options`, `play_content_answer`, `play_content_save`, `play_data_safety_fill`, `play_data_safety_export`, `play_data_safety_import`
 
-**Expo / EAS** — `eas_build_list`, `eas_build_start`, `eas_build_status`, `eas_build_download`, `eas_submit`
+**Expo / EAS** — `eas_build_list`, `eas_build_start`, `eas_build_local`, `eas_build_status`, `eas_build_download`, `eas_submit`
 
-Tools that publish or submit (`apple_submit_for_review`, `apple_resubmit_for_review`, `apple_reply_review`, `apple_cancel_submission`, `apple_set_*`, `apple_testflight_invite`, `play_upload_bundle`, `play_promote_release`, `play_upload_screenshots`) say so in their description, so the agent confirms with you first. They also carry MCP tool annotations (`destructiveHint`), so clients that support them can ask for approval on their own. `apple_reply_review` goes further: the reply reaches a person at Apple, so the server only sends it on a second call carrying the `confirm_token` from the preview — a hash of the exact text, attachments and submission, usable once.
+Tools that publish or submit (`apple_submit_for_review`, `apple_resubmit_for_review`, `apple_reply_review`, `apple_attach_review_file`, `apple_cancel_submission`, `apple_set_*`, `apple_testflight_invite`, `play_upload_bundle`, `play_promote_release`, `play_upload_screenshots`) say so in their description, so the agent confirms with you first. They also carry MCP tool annotations (`destructiveHint`), so clients that support them can ask for approval on their own. `apple_reply_review` goes further: the reply reaches a person at Apple, so the server only sends it on a second call carrying the `confirm_token` from the preview — a hash of the exact text, attachments and submission, usable once.
 
 ## Workflows
 
@@ -128,7 +128,7 @@ for Xcode archive/export and Gradle release bundles, then continue with the tool
 **New iOS app**
 ```
 apple_register_bundle_id → apple_create_app_form → [fill in the browser]
-→ apple_list_apps → eas_build_start / apple_upload_build → apple_list_builds (wait for VALID)
+→ apple_list_apps → eas_build_start / apple_upload_build → apple_wait_build (until VALID)
 → apple_attach_build → apple_update_listing → apple_set_app_info → apple_set_age_rating
 → apple_set_free_price → apple_set_availability → apple_set_app_privacy
 → apple_upload_screenshots → apple_set_review_details → apple_submit_for_review
@@ -143,7 +143,11 @@ play_create_app_form → [fill in the browser] → play_upload_bundle (track=int
 **Rejected with "Guideline 2.1 – Information Needed"** (standard for new developer accounts)
 ```
 apple_review_messages → record the iPhone walkthrough → apple_set_review_details (answers in Notes)
-→ apple_reply_review (answers + video) → apple_resubmit_for_review
+→ apple_attach_review_file (video) → apple_resubmit_for_review
+```
+Everything after reading the rejection is API only, so it does not depend on the console session. If Apple insists on an answer in the Resolution Center:
+```
+… → apple_reply_review (answers + video) → apple_resubmit_for_review
 ```
 
 ## Hard-won lessons
@@ -158,11 +162,12 @@ The part people bookmark. Each one cost a rejected build or a lost afternoon.
 - **Availability needs every territory in the payload**, each flagged available or not — and the public API returns 409 anyway; the console endpoint works.
 - **Cancelling a submission also cancels its subscriptions, and that can't be undone by API.** Re-adding them requires the console (details in [`docs/apple-subscriptions.md`](docs/apple-subscriptions.md)).
 - **An app with an auto-renewable subscription is auto-rejected (3.1.2) without a working Terms of Use link** in the listing. The standard Apple EULA link fixes it without a new build.
-- **`xcrun altool` won't take a key path argument**, but it honors `API_PRIVATE_KEYS_DIR`.
+- **Upload builds through the `buildUploads` API, not `xcrun altool`.** altool breaks on every command in Xcode 27 ("Defaults.properties couldn't be opened") and the Transporter CLI now needs the Transporter app. The API takes the same key as every other call; version and build come from the `.ipa`'s own `Info.plist`, so they can't disagree with the binary (ITMS-90345).
 - **Screenshots belong to a version on iOS** (a released version won't accept new ones — create the next version) but to the listing on Play (live immediately).
 
 **Expo / EAS**
-- `eas submit --non-interactive` refuses App Store Connect API keys; this server downloads the `.ipa` and uploads with `altool` instead.
+- `eas submit --non-interactive` refuses App Store Connect API keys; this server downloads the `.ipa` and uploads it through the `buildUploads` API instead.
+- **Out of Free plan builds?** `eas_build_start` fails with *"This account has used its iOS builds from the Free plan this month"* and the error points to `eas_build_local`, which runs `eas build --local` in the background (iOS needs Xcode, fastlane and CocoaPods). It needs `node_modules` installed — without it eas's `npx expo config` fails with *"Failed to resolve plugin for module expo-router"* — so the tool runs `npm ci` first when it is missing. The log ends with `[eas_build_local] exit=N`.
 - `eas build:view` rejects `--non-interactive` ("Nonexistent flag") — a classic source of silent failures in wrappers.
 - APNs keys are per team. After moving an app to another Apple team, a push key from the old team silently stops delivering (`InvalidProviderToken`).
 

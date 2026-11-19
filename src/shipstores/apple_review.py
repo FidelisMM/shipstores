@@ -180,7 +180,10 @@ print('__SP__ok')
         raise browser.BrowserError("Timed out after clicking Reply; the message may have been sent.") from exc
     except browser.BrowserError as exc:
         # Only a failed script run carries its output; anything else may come after the click.
-        if str(exc).startswith(("browser-harness failed", "browser-harness not found")) and CLICKED not in str(exc):
+        failed_run = isinstance(exc, browser.ScriptFailed) or str(exc).startswith(
+            ("browser-harness failed", "browser-harness not found")
+        )
+        if failed_run and CLICKED not in str(exc):
             erro = next((l for l in str(exc).splitlines() if l.startswith("ERROR")), str(exc)[-500:])
             raise ReplyNotSent(erro) from exc
         raise
