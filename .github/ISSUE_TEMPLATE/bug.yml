@@ -6,6 +6,12 @@ body:
     id: tool
     attributes: {label: Tool}
     validations: {required: true}
+  - type: input
+    id: version
+    attributes: {label: shipstores version, placeholder: "0.2.0", description: "uvx runs the latest release unless you pinned one"}
+  - type: input
+    id: client
+    attributes: {label: MCP client, placeholder: Claude Code, Claude Desktop, Cursor...}
   - type: textarea
     id: details
     attributes: {label: What happened, description: Input you passed and the error. Redact keys and ids.}

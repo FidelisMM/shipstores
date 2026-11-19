@@ -28,6 +28,7 @@ Without the profile, everything keeps working as before, in the user's Chrome.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -155,37 +156,57 @@ CONSOLES = {
     },
     "apple": {
         "url": "https://appstoreconnect.apple.com/apps",
-        # when logged out, Apple redirects to idmsa
-        "login_hosts": ("idmsa.apple.com", "signin.apple.com"),
+        # when logged out, Apple redirects to idmsa or, when the session expired, to
+        # the console's own /login with authResult=FAILED
+        "login_hosts": ("idmsa.apple.com", "signin.apple.com", "appstoreconnect.apple.com/login"),
     },
 }
 
 
-def _final_url(url: str) -> str:
-    """Navigate and return the URL where the page ended up (follows login redirects)."""
-    out = run_harness(
+def _session_script(console: str) -> str:
+    """Script that opens the console and prints the final URL and, on Apple, whether the
+    internal API accepts the session.
+
+    The URL alone is not enough on Apple: the SPA takes a while to redirect to /login,
+    and 4 s after opening the page it still looks logged in. /iris answers 401 right away.
+    """
+    cfg = CONSOLES[console]
+    script = (
         "import time\n"
-        f"new_tab({url!r})\n"
+        f"new_tab({cfg['url']!r})\n"
         "wait_for_load()\n"
         "time.sleep(4)\n"
-        "print('URL=' + str(page_info().get('url','')))\n",
-        auto_login=False,
     )
-    for line in out.splitlines():
-        if line.startswith("URL="):
-            return line[4:].strip()
-    return ""
+    if console == "apple":
+        script += (
+            "js(\"window.__ss='running';fetch('/iris/v1/userPreferences',{credentials:'include'})"
+            ".then(r=>window.__ss=String(r.status)).catch(e=>window.__ss='0');'ok'\")\n"
+            "for _ in range(20):\n"
+            "    s = js('String(window.__ss)')\n"
+            "    if s != 'running': break\n"
+            "    time.sleep(0.5)\n"
+            f"if s != '200': print({LOGGED_OUT_MARK!r} + ' apple')\n"
+        )
+    return script + "print('URL=' + str(page_info().get('url','')))\n"
+
+
+def _logged_in(console: str, output: str) -> bool:
+    final = next((ln[4:].strip() for ln in output.splitlines() if ln.startswith("URL=")), "")
+    return bool(final) and _logged_out_console(output) is None and not any(
+        h in final for h in CONSOLES[console]["login_hosts"]
+    )
 
 
 def session_status(console: str | None = None) -> dict[str, bool]:
     """Report, for each console, whether the dedicated profile is still logged in."""
     alvos = [console] if console else list(CONSOLES)
-    estado: dict[str, bool] = {}
-    for nome in alvos:
-        cfg = CONSOLES[nome]
-        final = _final_url(cfg["url"])
-        estado[nome] = bool(final) and not any(h in final for h in cfg["login_hosts"])
-    return estado
+    return {nome: _logged_in(nome, run_harness(_session_script(nome), auto_login=False)) for nome in alvos}
+
+
+def session_status_user_browser(console: str) -> bool:
+    """Does the console open in the browser browser-harness drives by default (the user's)?"""
+    output = _via_user_browser(_session_script(console), 180)
+    return output is not None and _logged_in(console, output)
 
 
 def relogin(consoles: list[str] | None = None) -> str:
@@ -230,19 +251,44 @@ def run_harness(script: str, timeout: int = 180, auto_login: bool = True) -> str
             "browser-harness not found on PATH. "
             "Install it or create the app manually in the console."
         )
-    env = dict(os.environ)
     cdp = ensure_headless()
+    output = _harness(binary, script, timeout, cdp)
+    if not (auto_login and cdp) or _logged_out_console(output) is None:
+        return output
+    # The dedicated profile lost its session, but the browser browser-harness drives by
+    # default (the user's) is usually logged in. Try there before asking for a 2FA login.
+    fallback = _via_user_browser(script, timeout)
+    if fallback is not None:
+        return fallback
+    _falhar_se_deslogou(output)
+    return output
+
+
+def _harness(binary: str, script: str, timeout: int, cdp: str | None) -> str:
+    env = dict(os.environ)
     if cdp:
         env["BU_CDP_URL"] = cdp
+    else:
+        env.pop("BU_CDP_URL", None)
     result = subprocess.run(
         [binary], input=script, capture_output=True, text=True, timeout=timeout, env=env
     )
     output = f"{result.stdout}\n{result.stderr}".strip()
     if result.returncode != 0:
         raise BrowserError(f"browser-harness failed (exit {result.returncode}):\n{output}")
-    if auto_login and cdp:
-        _falhar_se_deslogou(output)
     return output
+
+
+def _via_user_browser(script: str, timeout: int) -> str | None:
+    """Run the script in browser-harness's default browser; None if it is logged out too."""
+    binary = shutil.which("browser-harness")
+    if not binary:
+        return None
+    try:
+        output = _harness(binary, script, timeout, None)
+    except (BrowserError, subprocess.TimeoutExpired):
+        return None
+    return output if _logged_out_console(output) is None else None
 
 
 # Hosts that only show up when the console bounced navigation to the login screen.
@@ -253,17 +299,34 @@ _LOGIN_HOSTS = {
     "accounts.google.com": "play",
     "idmsa.apple.com": "apple",
     "signin.apple.com": "apple",
+    # expired session: Apple stays on the same host and redirects to /login?authResult=FAILED
+    "appstoreconnect.apple.com/login": "apple",
 }
+
+# Line scripts print when a fetch to the internal API returns 401/403: the page loaded,
+# but without a session. Without it the result looked like "no messages".
+LOGGED_OUT_MARK = "__LOGGED_OUT__"
+
+
+def _logged_out_console(output: str) -> str | None:
+    """Console whose login screen shows up in the script output, or None."""
+    for host, console in _LOGIN_HOSTS.items():
+        if host in output:
+            return console
+    mark = re.search(rf"{LOGGED_OUT_MARK} (\w+)", output)
+    if mark and mark.group(1) in CONSOLES:
+        return mark.group(1)
+    return None
 
 
 def _falhar_se_deslogou(output: str) -> None:
-    for host, console in _LOGIN_HOSTS.items():
-        if host in output:
-            raise BrowserError(
-                f"The '{console}' console session expired — the page ended up on {host}, "
-                "so what was read is the login screen, not the console.\n"
-                + relogin([console])
-            )
+    console = _logged_out_console(output)
+    if console:
+        raise BrowserError(
+            f"The '{console}' console session expired (in the dedicated profile and in the "
+            "browser browser-harness drives by default), so what was read is the login "
+            "screen, not the console.\n" + relogin([console])
+        )
 
 
 def open_page(url: str) -> str:

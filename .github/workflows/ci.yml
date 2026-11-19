@@ -1,13 +1,30 @@
 name: CI
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
-      - run: uv sync
-      - run: uv run --with ruff ruff check src tests --select E9,F
-      - run: uv run python -m unittest discover -s tests -v
-      - run: uv run python -W error -c "import glob; [compile(open(f).read(), f, 'exec') for f in glob.glob('src/shipstores/*.py')]"
-      - run: uv run python -c "import asyncio; from shipstores.server import mcp; print(len(asyncio.run(mcp.list_tools())), 'tools')"
+      - run: uv sync --locked
+      - name: Lint
+        run: uv run --with ruff ruff check src tests --select E9,F
+      - name: Unit tests
+        run: uv run python -m unittest discover -s tests -v
+      - name: Compile with warnings as errors
+        run: uv run python -W error -c "import pathlib; [compile(p.read_text(), str(p), 'exec') for p in pathlib.Path('src/shipstores').glob('*.py')]"
+      - name: Tool count
+        run: uv run python -c "import asyncio; from shipstores.server import mcp; print(len(asyncio.run(mcp.list_tools())), 'tools')"
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t shipstores .
