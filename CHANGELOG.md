@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `play_content_status` reads the App content page instead of the release checklist on the dashboard: it returns `up_to_date`, the `pending` count and the name of each `pending_declarations` item, and fails loudly when the page did not load instead of answering "?". (Console labels are matched in pt-BR; en-US labels are welcome.)
 - `play_content_answer` is more reliable: it waits for the accessibility tree to get names before looking for the option (it comes back empty right after attaching to a tab) and, when no offset hits a short-label radio, clicks the center of the Material component, which the form registers (a plain `input.click()` checks it on screen but never saves).
 - `apple_upload_build` and `eas_submit` (iOS) upload through App Store Connect's `buildUploads` API instead of `xcrun altool`, which breaks in Xcode 27. Version, build number and bundle id come from the `.ipa`'s `Info.plist`; the tool blocks until Apple answers COMPLETE or FAILED (with Apple's errors) and points to `apple_wait_build`. iOS uploads no longer need macOS or Xcode. `store_doctor` drops `altool_key_dir`.
 - New `apple_wait_build`: blocks until a build leaves PROCESSING (VALID, FAILED or INVALID) and returns its `build_id`, ready for `apple_attach_build`. A build not listed yet right after the upload counts as waiting.

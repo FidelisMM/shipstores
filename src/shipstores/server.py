@@ -1936,25 +1936,65 @@ def play_submit_for_review(package_name: str) -> dict[str, Any]:
 
 @_register_tool
 def play_content_status(package_name: str) -> dict[str, Any]:
-    """Show how many "App content" declarations are still missing before the app can publish.
+    """Tell which "App content" declarations are pending, or that everything is up to date.
 
-    A draft app on Play only leaves draft once all of them are complete. None of
-    them has an API endpoint — they are console forms.
+    Reads the App content page (/app-content/overview), not the release checklist on
+    the dashboard. Its "Needs attention (N)" tab lists each pending declaration with a
+    "Start declaration" or "Edit declaration" button; when nothing is missing, the page
+    says it is all up to date and the pending block disappears.
+
+    Returns `up_to_date`, `pending` (the N on the tab) and `pending_declarations` (each
+    one's name as the console shows it). A draft app on Play only leaves draft once all
+    of them are complete, and none of them has an API endpoint. Console labels are
+    matched in pt-BR for now.
     """
     dev_id, app_id = _console_ids(package_name)
+    index = f"{play_console.CONSOLE}/developers/{dev_id}/app/{app_id}/app-content/overview"
     out = play_console.run(
         dev_id,
         app_id,
-        f'goto_url("{play_console.CONSOLE}/developers/{dev_id}/app/{app_id}/app-dashboard")\n'
-        "wait_for_load()\ntime.sleep(9)\n"
-        # "Tarefas concluídas" ("Tasks completed") is console UI text, matched literally (pt-BR)
-        't = body()\ni = t.find("Tarefas concluídas")\n'
-        'print(t[i:i+40].split("\\n")[0] if i > 0 else "?")\n',
+        f"goto_url({index!r})\n"
+        "wait_for_load()\ntime.sleep(10)\n"
+        "t = body()\n"
+        "tab, names = None, []\n"
+        "for n in cdp('Accessibility.getFullAXTree').get('nodes', []):\n"
+        "    if n.get('ignored'):\n"
+        "        continue\n"
+        "    role, name = (n.get('role') or {}).get('value'), _ax_name(n)\n"
+        # "Precisam de atenção (N)" ("Needs attention (N)") is console UI text (pt-BR)
+        "    if role == 'tab' and re.match(r'^Precisa', name):\n"
+        "        tab = name\n"
+        # Each pending one has a button "Iniciar/Editar a declaração de <name>"
+        # ("Start/Edit the <name> declaration")
+        "    m = re.match(r'^(?:Iniciar|Editar|Atualizar|Revisar) a declaração de (.+)$', name)\n"
+        "    if role == 'button' and m and m.group(1).strip() not in names:\n"
+        "        names.append(m.group(1).strip())\n"
+        "n_tab = re.search(r'\\((\\d+)\\)', tab or '')\n"
+        # "Tudo em dia" ("All up to date") is console UI text (pt-BR)
+        "print(json.dumps({'url': page_info()['url'], 'tab': tab,\n"
+        "    'n_tab': int(n_tab.group(1)) if n_tab else None,\n"
+        "    'up_to_date': 'Tudo em dia' in t, 'names': names}, ensure_ascii=False))\n",
     )
+    data = play_console.parse_json_tail(out)
+    if not isinstance(data, dict) or "/app-content/overview" not in data.get("url", ""):
+        raise RuntimeError(
+            f"Could not read the App content page ({index}). Output:\n{out.strip()[-800:]}"
+        )
+    names = data["names"]
+    pending = data["n_tab"] if data["n_tab"] is not None else len(names)
+    up_to_date = data["up_to_date"] and not names
+    if not up_to_date and not pending:
+        raise RuntimeError(
+            "The App content page opened but showed neither 'up to date' nor pending "
+            f"declarations (tab: {data['tab']!r}). The console may not have finished "
+            "loading (try again), or it is not in pt-BR, the only language matched so far."
+        )
     return {
         "package_name": package_name,
-        "progress": out.strip().splitlines()[-1] if out.strip() else "?",
-        "index": f"{play_console.CONSOLE}/developers/{dev_id}/app/{app_id}/app-content/overview",
+        "up_to_date": up_to_date,
+        "pending": 0 if up_to_date else pending,
+        "pending_declarations": names,
+        "index": index,
     }
 
 
